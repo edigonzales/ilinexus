@@ -1,0 +1,77 @@
+INTERLIS 2.4;
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!
+!! Datenmodell der amtlichen Vermessung "Bund" (DMAV)
+!! beschrieben in INTERLIS Version 2.4
+!!
+!! Bundesamt fuer Landestopographie (swisstopo)
+!! Fachstelle Eidgenoessische Vermessungsdirektion (V+D)
+!! CH-3084 Wabern
+!! www.cadastre.ch und www.interlis.ch
+!!
+!! Version: 1 deutsch
+!! Dateiname: DMAV_FixpunkteAVKategorie2_V1_0.ili
+!!
+!! Das vorliegende Datenmodell gilt fuer den Bezugsrahmen "Landesvermessung 1903+
+!! (LV95)".
+!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!!@ technicalContact = mailto:dmav@swisstopo.ch
+!!@ furtherInformation = https://www.cadastre-manual.admin.ch/de/modelldokumentation-dmav
+!!@ IDGeoIV = "228.1"
+MODEL DMAV_FixpunkteAVKategorie2_V1_0 (de)
+  AT "https://models.geo.admin.ch/V_D/" VERSION "2024-05-15" =
+  IMPORTS GeometryCHLV95_V2;
+  IMPORTS DMAVTYM_Geometrie_V1_0;
+  IMPORTS DMAVTYM_Vermarkung_V1_0;
+  IMPORTS DMAVTYM_Qualitaet_V1_0;
+  IMPORTS DMAVTYM_Grafik_V1_0;
+
+  TOPIC FixpunkteAVKategorie2 =
+    BASKET OID AS INTERLIS.UUIDOID;
+    OID AS INTERLIS.UUIDOID;
+		
+		DOMAIN
+			
+			Schutzart=(keinSchutz,
+      			Schacht,
+      			ueberdeckt);
+		
+    CLASS LFP2 =
+      NBIdent: MANDATORY TEXT*12;
+      Nummer: MANDATORY TEXT*12;
+      Geometrie: MANDATORY GeometryCHLV95_V2.Coord2;
+      Hoehengeometrie: DMAVTYM_Geometrie_V1_0.Hoehe;
+      Lagegenauigkeit: MANDATORY DMAVTYM_Qualitaet_V1_0.Genauigkeit;
+      IstLagezuverlaessig: MANDATORY DMAVTYM_Qualitaet_V1_0.Zuverlaessigkeit;
+      Hoehengenauigkeit: DMAVTYM_Qualitaet_V1_0.Genauigkeit;
+      IstHoehenzuverlaessig: DMAVTYM_Qualitaet_V1_0.Zuverlaessigkeit; 
+      Begehbar: MANDATORY BOOLEAN;
+      Punktzeichen: DMAVTYM_Vermarkung_V1_0.Versicherungsart;
+      Schutzart: Schutzart;
+      Protokoll: MANDATORY BOOLEAN;
+      SymbolOri: DMAVTYM_Grafik_V1_0.Rotation; !! // undefiniert = 0.0 //
+      MANDATORY CONSTRAINT CH010101: DEFINED(Hoehengeometrie)==DEFINED(Hoehengenauigkeit);
+      MANDATORY CONSTRAINT CH010102: DEFINED(Hoehengeometrie)==DEFINED(IstHoehenzuverlaessig);
+      MANDATORY CONSTRAINT CH010103: Punktzeichen!=#unversichert;
+    UNIQUE CH010104: NBIdent, Nummer;
+    END LFP2;
+
+    CLASS HFP2 = 
+      NBIdent: MANDATORY TEXT*12;
+      Nummer: MANDATORY TEXT*12;
+      Geometrie: MANDATORY GeometryCHLV95_V2.Coord2;
+      Hoehengeometrie: MANDATORY DMAVTYM_Geometrie_V1_0.Hoehe;
+      Lagegenauigkeit: MANDATORY DMAVTYM_Qualitaet_V1_0.Genauigkeit;
+      IstLagezuverlaessig: MANDATORY DMAVTYM_Qualitaet_V1_0.Zuverlaessigkeit;
+      Hoehengenauigkeit: MANDATORY DMAVTYM_Qualitaet_V1_0.Genauigkeit;
+      IstHoehenzuverlaessig: MANDATORY DMAVTYM_Qualitaet_V1_0.Zuverlaessigkeit; 
+    UNIQUE CH010201: NBIdent, Nummer; 
+    UNIQUE CH010202: Geometrie;
+    END HFP2;
+
+  END FixpunkteAVKategorie2;
+ 
+END DMAV_FixpunkteAVKategorie2_V1_0.
