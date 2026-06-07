@@ -13,7 +13,10 @@ import guru.interlis.transformer.diag.Diagnostic;
 import guru.interlis.transformer.diag.DiagnosticCode;
 import guru.interlis.transformer.diag.DiagnosticCollector;
 import guru.interlis.transformer.diag.Severity;
+import guru.interlis.transformer.expr.EvalContext;
 import guru.interlis.transformer.expr.ExpressionEngine;
+import guru.interlis.transformer.expr.NullValue;
+import guru.interlis.transformer.expr.Value;
 import guru.interlis.transformer.mapping.model.JobConfig;
 import guru.interlis.transformer.mapping.plan.AssignmentPlan;
 import guru.interlis.transformer.mapping.plan.RulePlan;
@@ -140,10 +143,14 @@ public final class TransformationEngine {
                         Long.toString(stateStore.nextOid()));
                 Map<String, IomObject> sources = Map.of(matchedSource.alias(), record.sourceObject());
 
+                EvalContext evalCtx = new EvalContext(sources, diagnostics, rule.ruleId());
                 for (AssignmentPlan ap : rule.assignments()) {
-                    Object value = expressionEngine.evaluate(ap.expression(), sources);
-                    if (value != null) {
-                        target.setattrvalue(ap.targetAttrName(), value.toString());
+                    Value value = expressionEngine.evaluate(ap.expression(), evalCtx);
+                    if (value.isDefined()) {
+                        Object nativeValue = value.toNative();
+                        if (nativeValue != null) {
+                            target.setattrvalue(ap.targetAttrName(), nativeValue.toString());
+                        }
                     }
                 }
 
@@ -196,10 +203,14 @@ public final class TransformationEngine {
                 Iom_jObject target = new Iom_jObject(rule.getEffectiveTargetClass(),
                         Long.toString(stateStore.nextOid()));
                 Map<String, IomObject> sources = Map.of(sourceSpec.alias, record.sourceObject());
+                EvalContext evalCtxLegacy = new EvalContext(sources, diagnostics, rule.id);
                 for (JobConfig.AttributeMapping attr : rule.getAllAttributes()) {
-                    Object value = expressionEngine.evaluate(attr.expr, sources);
-                    if (value != null) {
-                        target.setattrvalue(attr.target, value.toString());
+                    Value value = expressionEngine.evaluate(attr.expr, evalCtxLegacy);
+                    if (value.isDefined()) {
+                        Object nativeValue = value.toNative();
+                        if (nativeValue != null) {
+                            target.setattrvalue(attr.target, nativeValue.toString());
+                        }
                     }
                 }
                 for (JobConfig.RefMapping ref : rule.getEffectiveRefs()) {

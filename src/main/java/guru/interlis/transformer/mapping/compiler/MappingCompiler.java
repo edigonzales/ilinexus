@@ -6,6 +6,12 @@ import guru.interlis.transformer.diag.Diagnostic;
 import guru.interlis.transformer.diag.DiagnosticCode;
 import guru.interlis.transformer.diag.DiagnosticCollector;
 import guru.interlis.transformer.diag.Severity;
+import guru.interlis.transformer.expr.FunctionRegistry;
+import guru.interlis.transformer.expr.builtins.BasicFunctions;
+import guru.interlis.transformer.expr.builtins.DateFunctions;
+import guru.interlis.transformer.expr.builtins.EnumFunctions;
+import guru.interlis.transformer.expr.builtins.RefFunctions;
+import guru.interlis.transformer.expr.builtins.StringFunctions;
 import guru.interlis.transformer.mapping.model.JobConfig;
 import guru.interlis.transformer.mapping.plan.AssignmentPlan;
 import guru.interlis.transformer.mapping.plan.ExpressionKind;
@@ -25,6 +31,26 @@ import java.util.Map;
 import java.util.Set;
 
 public final class MappingCompiler {
+
+    private final FunctionRegistry functionRegistry;
+
+    public MappingCompiler() {
+        this.functionRegistry = defaultRegistry();
+    }
+
+    public MappingCompiler(FunctionRegistry functionRegistry) {
+        this.functionRegistry = functionRegistry;
+    }
+
+    private static FunctionRegistry defaultRegistry() {
+        FunctionRegistry registry = new FunctionRegistry();
+        BasicFunctions.registerAll(registry);
+        StringFunctions.registerAll(registry);
+        DateFunctions.registerAll(registry);
+        EnumFunctions.registerAll(registry);
+        RefFunctions.registerAll(registry);
+        return registry;
+    }
 
     public CompileResult compile(JobConfig config) {
         DiagnosticCollector diagnostics = new DiagnosticCollector();
@@ -238,6 +264,14 @@ public final class MappingCompiler {
         ExpressionKind kind = classifyExpression(expr);
         TypeInfo type = inferExpressionType(expr, kind, sourcePlans, diag, ruleId);
 
+        // For function calls, use registry-based return type inference
+        if (kind == ExpressionKind.FUNCTION_CALL) {
+            TypeInfo inferred = inferFunctionType(expr, diag, ruleId);
+            if (inferred != TypeInfo.UNKNOWN) {
+                type = inferred;
+            }
+        }
+
         // Check source attribute references
         checkSourcePaths(expr, sourcePlans, ruleId, diag);
 
@@ -300,6 +334,31 @@ public final class MappingCompiler {
         return new RefPlan(roleName, association, sourceRef, targetRuleId, ref.required);
     }
 
+    // -- Function type inference (Phase 4) ---------------------------------
+
+    private TypeInfo inferFunctionType(String expr, DiagnosticCollector diag, String ruleId) {
+        String funcName = extractFunctionName(expr);
+        if (funcName == null) return TypeInfo.UNKNOWN;
+        var def = functionRegistry.resolve(funcName);
+        if (def.isPresent()) {
+            if (def.get().nonDeterministic()) {
+                diag.add(new Diagnostic(DiagnosticCode.EXPR_NON_DETERMINISTIC, Severity.WARNING,
+                        "Non-deterministic function used: " + funcName,
+                        ruleId, "Results may vary between runs"));
+            }
+            return def.get().returnType();
+        }
+        return TypeInfo.UNKNOWN;
+    }
+
+    static String extractFunctionName(String expr) {
+        if (expr == null || expr.isBlank()) return null;
+        String trimmed = expr.trim();
+        int paren = trimmed.indexOf('(');
+        if (paren < 0) return null;
+        return trimmed.substring(0, paren).trim();
+    }
+
     // -- Type classification helpers ---------------------------------------
 
     static ExpressionKind classifyExpression(String expr) {
@@ -335,15 +394,15 @@ public final class MappingCompiler {
     }
 
     static TypeInfo inferExpressionType(String expr, ExpressionKind kind,
-                                         List<SourcePlan> sourcePlans,
-                                         DiagnosticCollector diag, String ruleId) {
+                                          List<SourcePlan> sourcePlans,
+                                          DiagnosticCollector diag, String ruleId) {
         return switch (kind) {
             case LITERAL_TEXT -> TypeInfo.TEXT;
             case LITERAL_NUMBER -> TypeInfo.NUMERIC;
             case LITERAL_BOOLEAN -> TypeInfo.BOOLEAN;
             case LITERAL_ENUM -> TypeInfo.ENUM;
             case SOURCE_PATH -> inferSourcePathType(expr, sourcePlans);
-            case FUNCTION_CALL -> TypeInfo.UNKNOWN;
+            case FUNCTION_CALL -> TypeInfo.UNKNOWN; // overridden in instance method
             default -> TypeInfo.UNKNOWN;
         };
     }

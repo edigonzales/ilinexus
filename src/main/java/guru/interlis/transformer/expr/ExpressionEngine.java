@@ -1,54 +1,168 @@
 package guru.interlis.transformer.expr;
 
 import ch.interlis.iom.IomObject;
+import guru.interlis.transformer.diag.Diagnostic;
+import guru.interlis.transformer.diag.DiagnosticCode;
+import guru.interlis.transformer.diag.DiagnosticCollector;
+import guru.interlis.transformer.diag.Severity;
+import guru.interlis.transformer.expr.builtins.BasicFunctions;
+import guru.interlis.transformer.expr.builtins.DateFunctions;
+import guru.interlis.transformer.expr.builtins.EnumFunctions;
+import guru.interlis.transformer.expr.builtins.RefFunctions;
+import guru.interlis.transformer.expr.builtins.StringFunctions;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public final class ExpressionEngine {
-    public Object evaluate(String expression, Map<String, IomObject> sources) {
+
+    private final FunctionRegistry functionRegistry;
+
+    public ExpressionEngine() {
+        this.functionRegistry = new FunctionRegistry();
+        registerBuiltins();
+    }
+
+    public ExpressionEngine(FunctionRegistry functionRegistry) {
+        this.functionRegistry = functionRegistry;
+    }
+
+    private void registerBuiltins() {
+        BasicFunctions.registerAll(functionRegistry);
+        StringFunctions.registerAll(functionRegistry);
+        DateFunctions.registerAll(functionRegistry);
+        EnumFunctions.registerAll(functionRegistry);
+        RefFunctions.registerAll(functionRegistry);
+    }
+
+    public FunctionRegistry functionRegistry() {
+        return functionRegistry;
+    }
+
+    public Value evaluate(String expression, Map<String, IomObject> sources) {
+        EvalContext ctx = new EvalContext(sources, null, null);
+        return evaluate(expression, ctx);
+    }
+
+    public Value evaluate(String expression, EvalContext ctx) {
         if (expression == null || expression.isBlank()) {
-            return null;
+            return NullValue.INSTANCE;
         }
-        String expr = expression.trim();
-        if (expr.startsWith("if(")) {
-            return evaluateIf(expr, sources);
+        String trimmed = expression.trim();
+
+        // Legacy quick path: simple string literal
+        if ((trimmed.startsWith("\"") && trimmed.endsWith("\""))
+                || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+            return new TextValue(trimmed.substring(1, trimmed.length() - 1));
         }
-        if ((expr.startsWith("\"") && expr.endsWith("\"")) || (expr.startsWith("'") && expr.endsWith("'"))) {
-            return expr.substring(1, expr.length() - 1);
+
+        // Legacy quick path: simple path reference ${alias.attr}
+        if (trimmed.startsWith("${") && trimmed.endsWith("}") && !trimmed.contains("(")) {
+            String path = trimmed.substring(2, trimmed.length() - 1);
+            return resolveSourcePath(path, ctx);
         }
-        if (expr.startsWith("${") && expr.endsWith("}")) {
-            return resolvePath(expr.substring(2, expr.length() - 1), sources);
+
+        // Full parsing
+        Expression ast;
+        try {
+            ast = ExpressionParser.parse(trimmed);
+        } catch (ExpressionParseException e) {
+            if (ctx.diagnostics() != null) {
+                ctx.diagnostics().add(new Diagnostic(
+                        DiagnosticCode.EXPR_SYNTAX, Severity.ERROR,
+                        "Expression parse error: " + e.getMessage(),
+                        ctx.ruleId(), expression));
+            }
+            return NullValue.INSTANCE;
         }
-        return expr;
+
+        try {
+            return evaluateAst(ast, ctx);
+        } catch (Exception e) {
+            if (ctx.diagnostics() != null) {
+                ctx.diagnostics().add(new Diagnostic(
+                        DiagnosticCode.EXPR_TYPE, Severity.ERROR,
+                        "Expression evaluation error: " + e.getMessage(),
+                        ctx.ruleId(), expression));
+            }
+            return NullValue.INSTANCE;
+        }
     }
 
-    private Object evaluateIf(String expr, Map<String, IomObject> sources) {
-        String args = expr.substring(3, expr.length() - 1);
-        String[] parts = args.split(",", 3);
-        if (parts.length < 3) {
-            return null;
-        }
-        boolean condition = evaluateCondition(parts[0].trim(), sources);
-        return evaluate(condition ? parts[1].trim() : parts[2].trim(), sources);
+    // -- AST evaluation -----------------------------------------------
+
+    private Value evaluateAst(Expression ast, EvalContext ctx) {
+        return switch (ast) {
+            case LiteralExpr l -> l.value();
+            case PathExpr p -> resolveSourcePath(p.alias() + "." + p.attributeName(), ctx);
+            case FunctionCallExpr f -> evaluateFunctionCall(f, ctx);
+            case ConditionalExpr c -> evaluateConditional(c, ctx);
+        };
     }
 
-    private boolean evaluateCondition(String cond, Map<String, IomObject> sources) {
-        if (cond.contains("!= null")) {
-            String path = cond.replace("!= null", "").trim();
-            Object value = evaluate(path, sources);
-            return value != null;
+    private Value evaluateFunctionCall(FunctionCallExpr call, EvalContext ctx) {
+        Optional<FunctionDef> defOpt = functionRegistry.resolve(call.functionName());
+        if (defOpt.isEmpty()) {
+            if (ctx.diagnostics() != null) {
+                ctx.diagnostics().add(new Diagnostic(
+                        DiagnosticCode.EXPR_UNKNOWN_FUNC, Severity.ERROR,
+                        "Unknown function: " + call.functionName(),
+                        ctx.ruleId(), "Check function name or ensure it is registered"));
+            }
+            return NullValue.INSTANCE;
         }
-        return Boolean.parseBoolean(cond);
+        FunctionDef def = defOpt.get();
+
+        if (def.nonDeterministic() && ctx.diagnostics() != null) {
+            ctx.diagnostics().add(new Diagnostic(
+                    DiagnosticCode.EXPR_NON_DETERMINISTIC, Severity.WARNING,
+                    "Non-deterministic function used: " + def.name(),
+                    ctx.ruleId(), "Results may vary between runs"));
+        }
+
+        List<Value> evalArgs = call.arguments().stream()
+                .map(arg -> evaluateAst(arg, ctx))
+                .toList();
+        return def.impl().apply(evalArgs, ctx);
     }
 
-    private Object resolvePath(String path, Map<String, IomObject> sources) {
+    private Value evaluateConditional(ConditionalExpr cond, EvalContext ctx) {
+        Value conditionVal = evaluateAst(cond.condition(), ctx);
+        boolean truthy = isTruthy(conditionVal);
+        return evaluateAst(truthy ? cond.thenExpr() : cond.elseExpr(), ctx);
+    }
+
+    private boolean isTruthy(Value value) {
+        if (!value.isDefined()) return false;
+        if (value instanceof BooleanValue bv) return bv.value();
+        if (value instanceof TextValue tv) return !tv.value().isEmpty();
+        if (value instanceof NumberValue nv) return nv.value() != 0;
+        return true;
+    }
+
+    // -- Source path resolution ---------------------------------------
+
+    private Value resolveSourcePath(String path, EvalContext ctx) {
         String[] parts = path.split("\\.", 2);
         if (parts.length < 2) {
-            return null;
+            return NullValue.INSTANCE;
         }
-        IomObject source = sources.get(parts[0]);
+        IomObject source = ctx.sources().get(parts[0]);
         if (source == null) {
-            return null;
+            return NullValue.INSTANCE;
         }
-        return source.getattrvalue(parts[1]);
+        String attrValue = source.getattrvalue(parts[1]);
+        if (attrValue == null) {
+            return NullValue.INSTANCE;
+        }
+        return new TextValue(attrValue);
+    }
+
+    // -- Legacy compatibility -----------------------------------------
+
+    @Deprecated
+    public Object evaluateLegacy(String expression, Map<String, IomObject> sources) {
+        Value result = evaluate(expression, sources);
+        return result.toNative();
     }
 }

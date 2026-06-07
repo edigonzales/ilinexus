@@ -254,6 +254,51 @@ class TypedCompilerTest {
         assertThat(assign.expectedType()).isEqualTo(TypeInfo.ENUM);
     }
 
+    // -- Function type inference (Phase 4) -------------------------
+
+    @Test
+    void functionCallTypeIsInferred() {
+        JobConfig config = minimalConfig();
+        var rule = config.mapping.rules.get(0);
+        rule.assign = new java.util.LinkedHashMap<>();
+        rule.assign.put("Name", "truncate(${s.Beschreibung}, 60)");
+
+        Map<String, TypeSystemFacade> ts = Map.of("TestModel", testModelTs);
+        TransformPlan plan = new MappingCompiler().compileTyped(config, ts, ts);
+
+        var assign = plan.rules().get(0).assignments().get(0);
+        assertThat(assign.exprKind()).isEqualTo(ExpressionKind.FUNCTION_CALL);
+        assertThat(assign.expectedType()).isEqualTo(TypeInfo.TEXT);
+    }
+
+    @Test
+    void xmlDateTimeFunctionTypeIsInferred() {
+        JobConfig config = minimalConfig();
+        var rule = config.mapping.rules.get(0);
+        rule.assign = new java.util.LinkedHashMap<>();
+        rule.assign.put("Name", "toXmlDateTime(${s.Beschreibung})");
+
+        Map<String, TypeSystemFacade> ts = Map.of("TestModel", testModelTs);
+        TransformPlan plan = new MappingCompiler().compileTyped(config, ts, ts);
+
+        var assign = plan.rules().get(0).assignments().get(0);
+        assertThat(assign.expectedType()).isEqualTo(TypeInfo.XML_DATE_TIME);
+    }
+
+    @Test
+    void unknownFunctionTypeIsUnknown() {
+        JobConfig config = minimalConfig();
+        var rule = config.mapping.rules.get(0);
+        rule.assign = new java.util.LinkedHashMap<>();
+        rule.assign.put("Name", "nonexistent(42)");
+
+        Map<String, TypeSystemFacade> ts = Map.of("TestModel", testModelTs);
+        TransformPlan plan = new MappingCompiler().compileTyped(config, ts, ts);
+
+        var assign = plan.rules().get(0).assignments().get(0);
+        assertThat(assign.expectedType()).isEqualTo(TypeInfo.UNKNOWN);
+    }
+
     // -- Helpers ------------------------------------------------------------
 
     private static JobConfig minimalConfig() {

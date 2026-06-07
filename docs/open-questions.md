@@ -39,7 +39,22 @@
 - **Backward-Kompatibilität**: Engine behält `run(JobConfig)`-Methode, neue `runTyped(TransformPlan)` parallel.
 
 ### Open
-- Soll die Typ-Inferenz bereits in Phase 4 Funktionsrückgabetypen kennen? (z.B. `truncate()` → TEXT, `toXmlDateTime()` → XML_DATE_TIME)
+- ~~Soll die Typ-Inferenz bereits in Phase 4 Funktionsrückgabetypen kennen? (z.B. `truncate()` → TEXT, `toXmlDateTime()` → XML_DATE_TIME)~~ **Erledigt in Phase 4**: `MappingCompiler` nutzt jetzt `FunctionRegistry` zur Typ-Inferenz für `FUNCTION_CALL`.
 - Soll `isAbstract()`-Prüfung Error oder Warning sein? (aktuell Error)
 - Sollen OID und Basket-Strategien bereits im `TransformPlan` repräsentiert werden?
 - Wie granular sollen Enum-Mapping-Coverage-Checks sein? (aktuell keine)
+
+## Phase 4 (Expression Engine und Function Registry)
+
+### Resolved
+- **Expression Parser**: Eigener rekursiver Abstiegs-Parser (kein JEXL). Unterstützt Literale (String, Number, Boolean, null, Enum), Pfadreferenzen (`${alias.attr}`), Funktionsaufrufe, `if()`-Konditionale, `!= null`/`== null`-Vergleiche.
+- **Value Layer**: `sealed interface Value` mit `TextValue`, `NumberValue`, `BooleanValue`, `DateValue`, `XmlDateTimeValue`, `EnumValue`, `CoordValue`, `ReferenceValue`, `NullValue`.
+- **Function Registry**: `FunctionRegistry` mit Builtins: `coalesce`, `defined`, `notDefined`, `isNull`, `default`, `null` (Basic); `concat`, `substring`, `trim`, `upper`, `lower`, `replace`, `truncate` (String); `toXmlDateTime`, `now` (Date, `now` ist @NonDeterministic); `enumMap` (Stub, Phase 10), `enumDefault`, `enumName`; `refOid`, `refEquals` (Reference).
+- **Compiler-Integration**: `MappingCompiler` inferiert Funktionsrückgabetypen über `FunctionRegistry` (z.B. `truncate()` → TEXT, `toXmlDateTime()` → XML_DATE_TIME).
+- **TransformationEngine**: Nutzt neue `ExpressionEngine` mit `EvalContext` und typisierten `Value`-Rückgaben.
+- **`enumMap()`**: Als Stub implementiert (Pass-through mit Diagnostic-Warnung). Vollständige Enum-Mapping-Logik in Phase 10.
+
+### Open
+- Soll der Parser auch arithmetische Ausdrücke (`+`, `-`, `*`, `/`) unterstützen? Aktuell nicht.
+- Sollen Vergleichsoperatoren (`>`, `<`, `>=`, `<=`) unterstützt werden? Aktuell nur `!= null`/`== null`.
+- Sollen `lookupOne`/`lookupMany` (StateStore-Lookups) bereits in Phase 4 implementiert werden aber Zugriff auf StateStore erst in Phase 5?

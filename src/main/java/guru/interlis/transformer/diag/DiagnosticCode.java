@@ -34,4 +34,11 @@ public final class DiagnosticCode {
     // Runtime
     public static final String RUN_REF_UNRESOLVED = "ILITRF-RUN-REF-UNRESOLVED";
     public static final String RUN_REF_AMBIGUOUS = "ILITRF-RUN-REF-AMBIGUOUS";
+
+    // Expression (Phase 4)
+    public static final String EXPR_SYNTAX = "ILITRF-EXPR-SYNTAX";
+    public static final String EXPR_UNKNOWN_FUNC = "ILITRF-EXPR-UNKNOWN-FUNC";
+    public static final String EXPR_TYPE = "ILITRF-EXPR-TYPE";
+    public static final String EXPR_NON_DETERMINISTIC = "ILITRF-EXPR-NON-DETERMINISTIC";
+    public static final String EXPR_UNSUPPORTED = "ILITRF-EXPR-UNSUPPORTED";
 }
