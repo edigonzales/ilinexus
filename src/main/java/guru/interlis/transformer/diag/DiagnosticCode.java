@@ -28,6 +28,12 @@ public final class DiagnosticCode {
     public static final String MAP_CYCLIC_DEPENDENCY = "ILITRF-MAP-CYCLIC-DEPENDENCY";
     public static final String MAP_NON_TRANSFERABLE_TARGET = "ILITRF-MAP-NON-TRANSFERABLE-TARGET";
 
+    // Phase 6 – OID / Basket strategy validation
+    public static final String MAP_UNKNOWN_OID_STRATEGY = "ILITRF-MAP-UNKNOWN-OID-STRATEGY";
+    public static final String MAP_UNKNOWN_BASKET_STRATEGY = "ILITRF-MAP-UNKNOWN-BASKET-STRATEGY";
+    public static final String MAP_OID_TYPE_MISMATCH = "ILITRF-MAP-OID-TYPE-MISMATCH";
+    public static final String MAP_IDENTITY_KEY_MISSING = "ILITRF-MAP-IDENTITY-KEY-MISSING";
+
     // Model
     public static final String MODEL_COMPILE_FAILED = "ILITRF-MODEL-COMPILE-FAILED";
 

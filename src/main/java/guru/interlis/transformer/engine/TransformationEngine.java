@@ -27,12 +27,15 @@ import guru.interlis.transformer.mapping.plan.AssignmentPlan;
 import guru.interlis.transformer.mapping.plan.RulePlan;
 import guru.interlis.transformer.mapping.plan.SourcePlan;
 import guru.interlis.transformer.mapping.plan.TransformPlan;
+import guru.interlis.transformer.state.BasketStrategy;
 import guru.interlis.transformer.state.DeferredRef;
+import guru.interlis.transformer.state.OidStrategy;
 import guru.interlis.transformer.state.SourceRecord;
 import guru.interlis.transformer.state.SourceRefKey;
 import guru.interlis.transformer.state.StateStore;
 import guru.interlis.transformer.state.TargetRefValue;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,7 +69,7 @@ public final class TransformationEngine {
         Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket = pass2BuildTargetsLegacy(config);
         resolveDeferredRefs();
         targetsWritten = writeOutputsLegacy(config, writersByOutputId, objectsByOutputAndBasket);
-        return buildResult();
+        return buildResult(null);
     }
 
     // -- Typed API (Phase 3+) -----------------------------------------------
@@ -79,7 +82,7 @@ public final class TransformationEngine {
         Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket = pass2BuildTargets(plan);
         resolveDeferredRefs();
         targetsWritten = writeOutputs(plan, writersByOutputId, objectsByOutputAndBasket);
-        return buildResult();
+        return buildResult(plan);
     }
 
     private void resetCounters() {
@@ -91,13 +94,15 @@ public final class TransformationEngine {
         engineWarnings = 0;
     }
 
-    private TransformResult buildResult() {
+    private TransformResult buildResult(TransformPlan plan) {
         for (Diagnostic d : diagnostics.all()) {
             if (d.severity() == Severity.ERROR) engineErrors++;
             else if (d.severity() == Severity.WARNING) engineWarnings++;
         }
         return new TransformResult(sourceRecordsRead, sourceRecordsFiltered,
-                targetsCreated, targetsWritten, engineErrors, engineWarnings);
+                targetsCreated, targetsWritten, engineErrors, engineWarnings,
+                plan != null ? plan.oidStrategy().name() : "integer",
+                plan != null ? plan.basketStrategy().name() : "preserve");
     }
 
     // -- Pass 1: Source Scan / Indexing ------------------------------------
@@ -187,9 +192,19 @@ public final class TransformationEngine {
                     }
                 }
 
+                Map<String, String> identityKeyValues = buildIdentityKeyValues(
+                        rule.identitySourceKeys(), record.sourceObject(), matchedSource.alias());
+                String sourceOid = record.sourceObject().getobjectoid();
+                String targetOid = stateStore.nextOid(
+                        plan.oidStrategy(), plan.oidNamespace(), rule.ruleId(),
+                        sourceOid, identityKeyValues);
+                if (targetOid == null) {
+                    targetOid = Long.toString(oldNextOid());
+                }
+
                 Iom_jObject target = new Iom_jObject(
                         getScopedName(rule.targetClass()),
-                        Long.toString(stateStore.nextOid()));
+                        targetOid);
                 targetsCreated++;
 
                 for (AssignmentPlan ap : rule.assignments()) {
@@ -227,7 +242,11 @@ public final class TransformationEngine {
                 );
                 stateStore.indexTargetObject(getScopedName(rule.targetClass()), target.getobjectoid(), target);
 
-                String basketKey = basketKey(extractTopic(getScopedName(rule.targetClass())), record.sourceBasketId());
+                String targetTopic = extractTopic(getScopedName(rule.targetClass()));
+                String targetBasketId = BasketRouter.determineTargetBasket(
+                        plan.basketStrategy(), record.sourceBasketId(), targetTopic,
+                        getScopedName(rule.targetClass()));
+                String basketKey = basketKey(targetTopic, targetBasketId);
                 objectsByOutputAndBasket
                         .computeIfAbsent(rule.outputId(), ignored -> new LinkedHashMap<>())
                         .computeIfAbsent(basketKey, ignored -> new ArrayList<>())
@@ -313,7 +332,10 @@ public final class TransformationEngine {
                 String topic = parts[0];
                 String basketId = parts.length > 1 ? parts[1] : null;
                 writer.write(new ch.interlis.iox_j.StartBasketEvent(topic, basketId));
-                for (IomObject target : basketEntry.getValue()) {
+                List<IomObject> sorted = new ArrayList<>(basketEntry.getValue());
+                sorted.sort(Comparator.comparing(IomObject::getobjecttag)
+                        .thenComparing(IomObject::getobjectoid));
+                for (IomObject target : sorted) {
                     writer.write(new ch.interlis.iox_j.ObjectEvent(target));
                     written++;
                 }
@@ -338,7 +360,10 @@ public final class TransformationEngine {
                 String topic = parts[0];
                 String basketId = parts.length > 1 ? parts[1] : null;
                 writer.write(new ch.interlis.iox_j.StartBasketEvent(topic, basketId));
-                for (IomObject target : basketEntry.getValue()) {
+                List<IomObject> sorted = new ArrayList<>(basketEntry.getValue());
+                sorted.sort(Comparator.comparing(IomObject::getobjecttag)
+                        .thenComparing(IomObject::getobjectoid));
+                for (IomObject target : sorted) {
                     writer.write(new ch.interlis.iox_j.ObjectEvent(target));
                     written++;
                 }
@@ -451,6 +476,30 @@ public final class TransformationEngine {
             }
         }
         return table.getName();
+    }
+
+    private static Map<String, String> buildIdentityKeyValues(List<String> identitySourceKeys,
+                                                               IomObject sourceObject, String alias) {
+        if (identitySourceKeys == null || identitySourceKeys.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String key : identitySourceKeys) {
+            if (key == null || key.isBlank()) continue;
+            String attrName = key;
+            if (key.contains(".")) {
+                String[] parts = key.split("\\.", 2);
+                if (!parts[0].equals(alias)) continue;
+                attrName = parts[1];
+            }
+            String val = sourceObject.getattrvalue(attrName);
+            result.put(key, val != null ? val : "");
+        }
+        return result;
+    }
+
+    private long oldNextOid() {
+        return stateStore.nextOid();
     }
 
     private record RefCall(String alias, String roleName) {}

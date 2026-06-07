@@ -74,8 +74,8 @@ mapping:
 
 | Feld | Typ | Pflicht | Beschreibung |
 |---|---|---|---|
-| `mapping.oidStrategy` | `OidStrategySpec` | Nein | OID-Strategie |
-| `mapping.basketStrategy` | `BasketStrategySpec` | Nein | Basket-Strategie |
+| `mapping.oidStrategy` | `OidStrategySpec` | Nein | OID-Strategie ✅ |
+| `mapping.basketStrategy` | `BasketStrategySpec` | Nein | Basket-Strategie ✅ |
 | `mapping.enums` | `map[string, map[string, string]]` | Nein | Enum-Mapping-Tabellen |
 | `mapping.defaults` | `map[string, string]` | Nein | Default-Werte |
 | `mapping.compileMode` | `string` | Nein | `strict` (default) oder `allowTodos` |
@@ -89,12 +89,16 @@ oidStrategy:
   namespace: "my-namespace"    # für deterministicUuid
 ```
 
+Ab Phase 6 unterstützt: `preserve`, `integer`, `uuid`, `deterministicUuid`. `external` ist als Stub vorbereitet.
+
 ### BasketStrategySpec
 
 ```yaml
 basketStrategy:
   default: preserve   # preserve | generateUuid | preserveOrGenerateUuid | byTopic | expression
 ```
+
+Ab Phase 6 unterstützt: `preserve`, `generateUuid`, `preserveOrGenerateUuid`, `byTopic`. `expression` ist als Stub vorbereitet.
 
 ## RuleSpec
 
@@ -106,7 +110,7 @@ Jede Rule erzeugt Zielobjekte aus Quellobjekten.
 | `target` | `TargetSpec` | Ja | Zielklasse und Output |
 | `sources` | `list[SourceSpec]` | Ja | Quellklassen (mindestens eine) |
 | `where` | `string` | Nein | Filter-Expression für Quellobjekte |
-| `identity` | `IdentitySpec` | Nein | Schlüsselfelder für OID-Bestimmung |
+| `identity` | `IdentitySpec` | Nein | Schlüsselfelder für OID-Bestimmung (ab Phase 6) ✅ |
 | `assign` | `map[string, string]` | Nein | Attributzuweisungen (Zielattribut → Expression) |
 | `refs` | `list[RefMapping]` | Nein | Referenzen / Associations |
 | `bags` | `map[string, BagSpec]` | Nein | BAG OF STRUCTURE |

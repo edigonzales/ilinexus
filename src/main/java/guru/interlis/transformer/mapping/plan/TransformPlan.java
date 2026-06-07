@@ -2,6 +2,8 @@ package guru.interlis.transformer.mapping.plan;
 
 import guru.interlis.transformer.diag.DiagnosticCollector;
 import guru.interlis.transformer.model.TypeSystemFacade;
+import guru.interlis.transformer.state.BasketStrategy;
+import guru.interlis.transformer.state.OidStrategy;
 
 public record TransformPlan(
         String name,
@@ -10,5 +12,8 @@ public record TransformPlan(
         java.util.List<RulePlan> rules,
         java.util.Map<String, TypeSystemFacade> sourceTypeSystems,
         java.util.Map<String, TypeSystemFacade> targetTypeSystems,
-        DiagnosticCollector diagnostics
+        DiagnosticCollector diagnostics,
+        OidStrategy oidStrategy,
+        String oidNamespace,
+        BasketStrategy basketStrategy
 ) {}

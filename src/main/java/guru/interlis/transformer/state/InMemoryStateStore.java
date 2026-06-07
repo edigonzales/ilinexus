@@ -1,11 +1,13 @@
 package guru.interlis.transformer.state;
 
 import ch.interlis.iom.IomObject;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class InMemoryStateStore implements StateStore {
@@ -77,6 +79,28 @@ public final class InMemoryStateStore implements StateStore {
     @Override
     public long nextOid() {
         return oidSequence.incrementAndGet();
+    }
+
+    @Override
+    public String nextOid(OidStrategy strategy, String namespace, String ruleId,
+                           String sourceOid, Map<String, String> identityKeyValues) {
+        return switch (strategy) {
+            case INTEGER -> Long.toString(oidSequence.incrementAndGet());
+            case PRESERVE -> sourceOid != null ? sourceOid : Long.toString(oidSequence.incrementAndGet());
+            case UUID -> java.util.UUID.randomUUID().toString();
+            case DETERMINISTIC_UUID -> generateDeterministicUuid(namespace, ruleId, identityKeyValues);
+            case EXTERNAL -> null;
+        };
+    }
+
+    private static String generateDeterministicUuid(String namespace, String ruleId,
+                                                     Map<String, String> identityKeyValues) {
+        String ns = namespace != null ? namespace : "default";
+        String keyPart = identityKeyValues != null && !identityKeyValues.isEmpty()
+                ? String.join("|", identityKeyValues.values())
+                : "";
+        String name = ns + ":" + ruleId + ":" + keyPart;
+        return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     private String key(String sourceClass, String sourceFileId, String sourceBasketId) {

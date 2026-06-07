@@ -1,6 +1,7 @@
 package guru.interlis.transformer.model;
 
 import ch.interlis.ili2c.metamodel.AttributeDef;
+import ch.interlis.ili2c.metamodel.Domain;
 import ch.interlis.ili2c.metamodel.Element;
 import ch.interlis.ili2c.metamodel.Extendable;
 import ch.interlis.ili2c.metamodel.Model;
@@ -111,6 +112,56 @@ public final class TypeSystemFacade {
 
     public TransferDescription getTransferDescription() {
         return td;
+    }
+
+    public String getOidType(String classPath) {
+        Topic topic = resolveTopic(classPath);
+        if (topic == null) return null;
+        return formatOidDomainType(topic.getOid());
+    }
+
+    public String getBasketOidType(String classPath) {
+        Topic topic = resolveTopic(classPath);
+        if (topic == null) return null;
+        return formatOidDomainType(topic.getBasketOid());
+    }
+
+    private Topic resolveTopic(String classPath) {
+        IliPath path = IliPath.parse(classPath);
+        if (path.length() < 2) return null;
+        for (Iterator<Model> modelIt = td.iterator(); modelIt.hasNext(); ) {
+            Model model = modelIt.next();
+            if (!modelNameMatches(model, path.model())) continue;
+            Iterator<Element> elIt = model.iterator();
+            while (elIt.hasNext()) {
+                Element el = elIt.next();
+                if (el instanceof Topic topic) {
+                    if (topicNameMatches(topic, path.topic())) {
+                        return topic;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String formatOidDomainType(Domain oidDomain) {
+        if (oidDomain == null) return "STANDARDOID";
+        if (oidDomain.getName() != null && !oidDomain.getName().isBlank()) {
+            return oidDomain.getName();
+        }
+        ch.interlis.ili2c.metamodel.Type type = oidDomain.getType();
+        if (type != null) {
+            String className = type.getClass().getSimpleName();
+            return switch (className) {
+                case "TextOIDType" -> "TEXT OID";
+                case "NumericOIDType" -> "NUMERIC OID";
+                case "AnyOIDType" -> "UUIDOID";
+                case "NoOid" -> "NO OID";
+                default -> className;
+            };
+        }
+        return "STANDARDOID";
     }
 
     private AttributeDef resolveAttribute(String classPath, String attrName) {

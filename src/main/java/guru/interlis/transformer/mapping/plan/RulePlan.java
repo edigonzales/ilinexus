@@ -8,5 +8,6 @@ public record RulePlan(
         Table targetClass,
         java.util.List<SourcePlan> sources,
         java.util.List<AssignmentPlan> assignments,
-        java.util.List<RefPlan> refs
+        java.util.List<RefPlan> refs,
+        java.util.List<String> identitySourceKeys
 ) {}

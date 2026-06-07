@@ -1,6 +1,6 @@
 # Baseline
 
-Stand nach Abschluss von Phase 5 (2026-06-07).
+Stand nach Abschluss von Phase 6 (2026-06-07).
 
 ## Technische Basis
 
@@ -49,18 +49,24 @@ Stand nach Abschluss von Phase 5 (2026-06-07).
 - `InMemoryStateStore` mit 3-Tier-Fallback für Referenzauflösung
 - `DiagnosticCollector` mit ERROR/WARNING/INFO
 - `GeometryAdapter`-Interface mit NoOp-Implementierung
-- **`TransformResult`** – Summary mit sourceRecordsRead, sourceRecordsFiltered, targetsCreated, targetsWritten, errors, warnings
-- 70 Tests in 12 Testklassen
+- **OID-Strategien**: `preserve`, `integer`, `uuid`, `deterministicUuid` (UUIDv3 via `java.util.UUID.nameUUIDFromBytes()`), `external` (Stub)
+- **Basket-Strategien**: `preserve`, `generateUuid`, `preserveOrGenerateUuid`, `byTopic`, `expression` (Stub) via `BasketRouter`
+- **Stable Sorting**: Target-Objekte werden im Writer nach `getobjecttag()` → `getobjectoid()` sortiert
+- **OID-Typ-Validierung**: Compiler prüft `integer`-Strategie gegen `UUIDOID`-Zielmodell
+- **`TransformResult`** – enthält jetzt `oidStrategy`/`basketStrategy` im Summary
+- 82 Tests in 15 Testklassen
 - Test-ILI-Modelle unter `src/test/data/models/`
 - DMAV V1.1 Testmodelle unter `src/test/data/av/models/`
 
 ### Bekannte Einschränkungen (als TODO dokumentiert)
 - `where`-Filter auf Rule-Ebene wird jetzt ausgewertet (Phase 5) ✅
-- Alle Zielwerte werden als String gesetzt (kein typisiertes Value-System) — Phase 4 ✅ (ExpressionEngine hat typisierte Values, Engine verwendet `toNative().toString()`)
-- OID-Strategie immer fortlaufende Longs (nicht UUID-kompatibel für DMAV) — Phase 6
+- OID-Strategie `deterministicUuid` (UUIDv3) funktional, `external` ist Stub (Phase 6) ✅
+- Basket-Strategien `preserve`, `generateUuid`, `preserveOrGenerateUuid`, `byTopic` funktional (Phase 6) ✅
+- Stable output sorting aktiv (Phase 6) ✅
 - Keine Joins, BAG OF STRUCTURE — spätere Phasen
 - Keine modellbewusste Rollen-/Referenzauflösung in Runtime — Phase 7
 - Kein `ilivalidator`-Support — Phase 10+
+- Keine produktive DMAV-Ausgabe — Phase 10+
 - XTF-Reader mit Modellkontext liest eigene Output-Dateien nicht zurück (IoxSyntaxException)
 
 ## Repository-Struktur (nach Phase 0)

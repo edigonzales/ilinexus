@@ -72,3 +72,22 @@
 - Warum kann der `XtfReader` mit `TransferDescription`-Modellkontext die vom `XtfWriter` geschriebenen Dateien nicht lesen? "Unexpected XML event transfer found" deutet auf eine Namespace-Erwartungshaltung des Xtf23Readers hin.
 - Soll die Engine die Output-Objekte zum Verifizieren zurückgeben, statt auf XTF-Readback angewiesen zu sein?
 - Soll `Iom_jObject.setattrvalue()` typisierte Werte erhalten (nicht nur Strings)? Derzeit nutzt die Engine `value.toNative().toString()`, was für skalare Typen funktioniert.
+
+## Phase 6 (OID-, Basket- und Writer-Strategien)
+
+### Resolved
+- **OID-Strategien**: `preserve`, `integer`, `uuid`, `deterministicUuid` (UUIDv3 via `java.util.UUID.nameUUIDFromBytes()`), `external` (Stub). Implementiert in `InMemoryStateStore.nextOid(OidStrategy, ...)`.
+- **Basket-Strategien**: `preserve`, `generateUuid`, `preserveOrGenerateUuid`, `byTopic`, `expression` (Stub). Implementiert via `BasketRouter.determineTargetBasket()`.
+- **`TransformPlan`**: Enthält jetzt `oidStrategy`, `oidNamespace`, `basketStrategy` Felder.
+- **`RulePlan`**: Enthält jetzt `identitySourceKeys` für `deterministicUuid`.
+- **`TypeSystemFacade.getOidType()`**: Neue Methode zur OID-Typ-Abfrage (UUIDOID vs STANDARDOID).
+- **OID-Typ-Validierung**: Compiler emittiert `ILITRF-MAP-OID-TYPE-MISMATCH` Error wenn `integer`-Strategie auf UUIDOID-Zielmodell.
+- **Stable Sorting**: `writeOutputs()` sortiert Target-Objekte nach `getobjecttag()` → `getobjectoid()`.
+- **`TransformResult`**: Enthält jetzt `oidStrategy`/`basketStrategy` im Summary-String.
+
+### Open
+- Soll `deterministicUuid` UUIDv5 (SHA-1) statt UUIDv3 (MD5) verwenden? Aktuell UUIDv3, was für den Use Case ausreicht.
+- Soll `external`-OID-Strategie als Expression evaluiert werden? Aktuell Stub (gibt null zurück, Engine fällt auf Integer zurück).
+- Soll die Basket-Strategie `byTopic` auch Basket-OID-Typen des Zielmodells berücksichtigen?
+- Wie soll mit OID-Kollisionen bei `preserve` umgegangen werden?
+- Status der Phasen 0-3 OID/Basket-Strategie-Fragen als gelöst markieren?

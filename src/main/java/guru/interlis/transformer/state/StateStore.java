@@ -2,6 +2,7 @@ package guru.interlis.transformer.state;
 
 import ch.interlis.iom.IomObject;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public interface StateStore {
@@ -25,5 +26,10 @@ public interface StateStore {
 
     void indexTargetObject(String targetClass, String targetOid, IomObject targetObject);
 
+    /** @deprecated Use {@link #nextOid(OidStrategy, String, String, String, Map)} */
+    @Deprecated
     long nextOid();
+
+    String nextOid(OidStrategy strategy, String namespace, String ruleId,
+                   String sourceOid, Map<String, String> identityKeyValues);
 }
