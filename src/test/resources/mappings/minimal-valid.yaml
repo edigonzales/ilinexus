@@ -1,0 +1,25 @@
+version: 1
+
+job:
+  description: "Minimal valid mapping for testing"
+  inputs:
+    - id: in1
+      path: "input.xtf"
+      model: "TestModel"
+  outputs:
+    - id: out1
+      path: "output.xtf"
+      model: "TestModel"
+
+mapping:
+  rules:
+    - id: rule1
+      target:
+        output: out1
+        class: "TestModel.TestTopic.TestClass"
+      sources:
+        - alias: s
+          input: in1
+          class: "TestModel.TestTopic.SourceClass"
+      assign:
+        name: "${s.name}"

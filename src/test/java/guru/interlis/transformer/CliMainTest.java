@@ -38,8 +38,8 @@ class CliMainTest {
         String output = outContent.toString();
         assertThat(output).contains("Usage:");
         assertThat(output).contains("ili-transformer");
-        assertThat(output).contains("<mapping>");
-        assertThat(output).contains("--modeldir");
+        assertThat(output).contains("transform");
+        assertThat(output).contains("validate-mapping");
     }
 
     @Test
@@ -51,10 +51,46 @@ class CliMainTest {
     }
 
     @Test
-    void missingMappingArgShowsError() {
+    void topLevelWithoutArgsPrintsHelp() {
         int exitCode = new CommandLine(new CliMain()).execute();
+        assertThat(exitCode).isZero();
+        String output = outContent.toString();
+        assertThat(output).contains("Usage:");
+    }
+
+    @Test
+    void validateMappingSubcommandShowsHelp() {
+        int exitCode = new CommandLine(new CliMain()).execute("validate-mapping", "--help");
+        assertThat(exitCode).isZero();
+        String output = outContent.toString();
+        assertThat(output).contains("validate-mapping");
+        assertThat(output).contains("--mapping");
+    }
+
+    @Test
+    void transformSubcommandShowsHelp() {
+        int exitCode = new CommandLine(new CliMain()).execute("transform", "--help");
+        assertThat(exitCode).isZero();
+        String output = outContent.toString();
+        assertThat(output).contains("transform");
+        assertThat(output).contains("--mapping");
+    }
+
+    @Test
+    void validateMappingWithoutFileShowsError() {
+        int exitCode = new CommandLine(new CliMain()).execute("validate-mapping");
         assertThat(exitCode).isEqualTo(2);
-        String output = errContent.toString();
-        assertThat(output).contains("Missing required parameter");
+        String err = errContent.toString();
+        assertThat(err).contains("--mapping");
+    }
+
+    @Test
+    void validateMappingWithValidFileExitsZero() {
+        int exitCode = new CommandLine(new CliMain()).execute(
+                "validate-mapping", "--mapping", "src/test/resources/mappings/minimal-valid.yaml"
+        );
+        assertThat(exitCode).isZero();
+        String output = outContent.toString();
+        assertThat(output).contains("valid");
     }
 }

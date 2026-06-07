@@ -9,6 +9,7 @@ import guru.interlis.transformer.expr.ExpressionEngine;
 import guru.interlis.transformer.interlis.InterlisIoFactory;
 import guru.interlis.transformer.interlis.InterlisModelLoader;
 import guru.interlis.transformer.mapping.compiler.MappingCompiler;
+import guru.interlis.transformer.mapping.compiler.MappingCompiler.CompileResult;
 import guru.interlis.transformer.mapping.model.JobConfig;
 import guru.interlis.transformer.mapping.model.MappingLoader;
 import guru.interlis.transformer.state.InMemoryStateStore;
@@ -17,6 +18,13 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class JobRunner {
+
+    public CompileResult validateMapping(Path configPath) throws Exception {
+        MappingLoader loader = new MappingLoader();
+        JobConfig config = loader.load(configPath);
+        return new MappingCompiler().compile(config);
+    }
+
     public DiagnosticCollector run(Path configPath, String modelDir) throws Exception {
         MappingLoader loader = new MappingLoader();
         JobConfig config = loader.load(configPath);

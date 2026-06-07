@@ -1,0 +1,25 @@
+version: 1
+
+job:
+  inputs:
+    - id: in1
+      path: "input.xtf"
+      model: "TestModel"
+  outputs:
+    - id: out1
+      path: "output.xtf"
+      model: "TestModel"
+
+mapping:
+  rules:
+    - id: rule1
+      target:
+        output: out1
+        class: "TestModel.TestTopic.TargetClass"
+      sources:
+        - alias: s
+          inputs:
+            - in1
+          class: "TestModel.TestTopic.SourceClass"
+      assign:
+        attr1: "${s.field}"

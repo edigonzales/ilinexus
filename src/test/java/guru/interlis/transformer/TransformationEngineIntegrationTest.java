@@ -48,6 +48,7 @@ class TransformationEngineIntegrationTest {
         IoxWriter writer = mock(IoxWriter.class);
 
         JobConfig config = new JobConfig();
+        config.version = 1;
         JobConfig.InputSpec input = new JobConfig.InputSpec();
         input.id = "in1";
         config.job.inputs.add(input);
@@ -57,6 +58,7 @@ class TransformationEngineIntegrationTest {
         config.job.outputs.add(output);
 
         JobConfig.RuleSpec rule = new JobConfig.RuleSpec();
+        rule.id = "r1";
         rule.targetClass = "M.T.Topic.TargetClass";
         rule.output = "out1";
         JobConfig.SourceSpec source = new JobConfig.SourceSpec();
@@ -68,12 +70,12 @@ class TransformationEngineIntegrationTest {
         JobConfig.AttributeMapping attr = new JobConfig.AttributeMapping();
         attr.target = "name";
         attr.expr = "${s.name}";
-        rule.attributes.add(attr);
+        rule.attributes = java.util.List.of(attr);
 
         JobConfig.RefMapping refMapping = new JobConfig.RefMapping();
         refMapping.target = "parentRef";
         refMapping.expr = "ref('s','parent')";
-        rule.refs.add(refMapping);
+        rule.refs = java.util.List.of(refMapping);
 
         config.mapping.rules.add(rule);
 

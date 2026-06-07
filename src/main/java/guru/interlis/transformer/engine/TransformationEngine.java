@@ -10,6 +10,7 @@ import ch.interlis.iox.IoxWriter;
 import ch.interlis.iox.ObjectEvent;
 import ch.interlis.iox.StartBasketEvent;
 import guru.interlis.transformer.diag.Diagnostic;
+import guru.interlis.transformer.diag.DiagnosticCode;
 import guru.interlis.transformer.diag.DiagnosticCollector;
 import guru.interlis.transformer.diag.Severity;
 import guru.interlis.transformer.expr.ExpressionEngine;
@@ -78,20 +79,20 @@ public final class TransformationEngine {
         for (SourceRecord record : stateStore.sourceRecords()) {
             for (JobConfig.RuleSpec rule : config.mapping.rules) {
                 JobConfig.SourceSpec sourceSpec = rule.sources.stream()
-                        .filter(spec -> spec.input.contains(record.sourceFileId()) && spec.clazz.equals(record.sourceClass()))
+                        .filter(spec -> spec.getInputIds().contains(record.sourceFileId()) && spec.clazz.equals(record.sourceClass()))
                         .findFirst().orElse(null);
                 if (sourceSpec == null) {
                     continue;
                 }
-                Iom_jObject target = new Iom_jObject(rule.targetClass, Long.toString(stateStore.nextOid()));
+                Iom_jObject target = new Iom_jObject(rule.getEffectiveTargetClass(), Long.toString(stateStore.nextOid()));
                 Map<String, IomObject> sources = Map.of(sourceSpec.alias, record.sourceObject());
-                for (JobConfig.AttributeMapping attr : rule.attributes) {
+                for (JobConfig.AttributeMapping attr : rule.getAllAttributes()) {
                     Object value = expressionEngine.evaluate(attr.expr, sources);
                     if (value != null) {
                         target.setattrvalue(attr.target, value.toString());
                     }
                 }
-                for (JobConfig.RefMapping ref : rule.refs) {
+                for (JobConfig.RefMapping ref : rule.getEffectiveRefs()) {
                     RefCall call = parseRefCall(ref.expr);
                     if (call == null || !sourceSpec.alias.equals(call.alias())) {
                         continue;
@@ -99,7 +100,7 @@ public final class TransformationEngine {
                     String sourceRefOid = readSourceReferenceOid(record.sourceObject(), call.roleName());
                     if (sourceRefOid != null && !sourceRefOid.isBlank()) {
                         stateStore.addDeferredRef(new DeferredRef(
-                                rule.targetClass,
+                                rule.getEffectiveTargetClass(),
                                 target.getobjectoid(),
                                 ref.target,
                                 record.sourceClass(),
@@ -113,13 +114,13 @@ public final class TransformationEngine {
 
                 stateStore.putIdMapping(
                         new SourceRefKey(record.sourceClass(), record.sourceObject().getobjectoid(), record.sourceFileId(), record.sourceBasketId()),
-                        new TargetRefValue(rule.targetClass, target.getobjectoid(), rule.output, record.sourceBasketId())
+                        new TargetRefValue(rule.getEffectiveTargetClass(), target.getobjectoid(), rule.getEffectiveTargetOutput(), record.sourceBasketId())
                 );
-                stateStore.indexTargetObject(rule.targetClass, target.getobjectoid(), target);
+                stateStore.indexTargetObject(rule.getEffectiveTargetClass(), target.getobjectoid(), target);
 
-                String basketKey = basketKey(extractTopic(rule.targetClass), record.sourceBasketId());
+                String basketKey = basketKey(extractTopic(rule.getEffectiveTargetClass()), record.sourceBasketId());
                 objectsByOutputAndBasket
-                        .computeIfAbsent(rule.output, ignored -> new LinkedHashMap<>())
+                        .computeIfAbsent(rule.getEffectiveTargetOutput(), ignored -> new LinkedHashMap<>())
                         .computeIfAbsent(basketKey, ignored -> new ArrayList<>())
                         .add(target);
             }
@@ -156,14 +157,14 @@ public final class TransformationEngine {
                     deferredRef.sourceFileId(),
                     deferredRef.sourceBasketId());
             if (candidates.isEmpty()) {
-                diagnostics.add(new Diagnostic("ILIMAP-REF-UNRESOLVED", Severity.WARNING,
+                diagnostics.add(new Diagnostic(DiagnosticCode.RUN_REF_UNRESOLVED, Severity.WARNING,
                         "Could not resolve reference " + deferredRef.sourceReferencedOid(),
                         deferredRef.ownerTargetClass() + "/" + deferredRef.ownerTargetOid(),
                         "Check source OID / basket routing"));
                 continue;
             }
             if (candidates.size() > 1) {
-                diagnostics.add(new Diagnostic("ILIMAP-REF-AMBIGUOUS", Severity.ERROR,
+                diagnostics.add(new Diagnostic(DiagnosticCode.RUN_REF_AMBIGUOUS, Severity.ERROR,
                         "Ambiguous reference " + deferredRef.sourceReferencedOid(),
                         deferredRef.ownerTargetClass() + "/" + deferredRef.ownerTargetOid(),
                         "Constrain mapping by file or basket"));
