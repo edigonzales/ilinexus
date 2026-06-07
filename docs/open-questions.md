@@ -12,3 +12,18 @@
 - Wie soll der Typed Plan (`TransformPlan`) genau strukturiert sein? (Phase 3)
 - Soll `enumMap()` in Expressions bereits in Phase 4 implementiert werden oder erst in Phase 10?
 - Welche Jackson-Konfiguration ist nötig für unbekannte Felder: ignorieren oder Fehler melden?
+
+## Phase 2 (INTERLIS Model Service und Inventory)
+
+### Resolved
+- **OID-Typen-Erkennung**: Über `Topic.getOid()`/`Topic.getBasketOid()` → Domain → Type-Klassenname.
+- **Mandatory-Detektion**: Über `AttributeDef.getCardinality().getMinimum() > 0`.
+- **Rollen-Extraktion**: Über `Table.getTargetForRoles()` (Roles aus Associations).
+- **INTERLIS-interne Modelle filtern**: `INTERLIS`, `GeometryCHLV95_V2`, `CoordSystem` werden ignoriert.
+- **Enum-Typ-Darstellung**: `getDomain()` gibt bei Domain-Referenzen den Domain-Namen zurück (`DOMAIN Model.Topic.DomainName`). Enum-Werte-Auflösung via `EnumerationType.getEnumeration().getElement(i).getName()`.
+
+### Open
+- Sollen Structure-Definitionen als eigene `ClassInventory`-Einträge erscheinen (aktuell nicht)?
+- Soll der `inspect-model` Output auch View-Klassen auflisten?
+- Soll die Enum-Werte-Liste direkt im Typ-String erscheinen oder als separates Feld?
+- Wie soll das `modeldir`-Handling bei `--modeldir`-Option mit Semikolon-Trennung mit ili2c-Settings interagieren?

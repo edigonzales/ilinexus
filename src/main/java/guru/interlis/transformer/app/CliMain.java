@@ -1,5 +1,6 @@
 package guru.interlis.transformer.app;
 
+import guru.interlis.transformer.cli.InspectModelCommand;
 import guru.interlis.transformer.diag.Diagnostic;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
@@ -13,7 +14,7 @@ import picocli.CommandLine.Parameters;
     description = "Generic INTERLIS transformation engine",
     mixinStandardHelpOptions = true,
     version = "ili-transformer 0.1.0",
-    subcommands = {CliMain.TransformCommand.class, CliMain.ValidateMappingCommand.class}
+    subcommands = {CliMain.TransformCommand.class, CliMain.ValidateMappingCommand.class, InspectModelCommand.class}
 )
 public final class CliMain implements Callable<Integer> {
 

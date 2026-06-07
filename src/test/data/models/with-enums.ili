@@ -1,0 +1,18 @@
+INTERLIS 2.4;
+
+MODEL EnumModel (en)
+  AT "http://test.ili-transformer.ch" VERSION "2026-06-07" =
+  TOPIC EnumTopic =
+    BASKET OID AS INTERLIS.UUIDOID;
+    OID AS INTERLIS.STANDARDOID;
+
+    DOMAIN
+      Status = (aktiv, inaktiv, geplant);
+
+    CLASS StatusClass =
+      Name: MANDATORY TEXT*60;
+      AktuellerStatus: MANDATORY Status;
+    END StatusClass;
+
+  END EnumTopic;
+END EnumModel.

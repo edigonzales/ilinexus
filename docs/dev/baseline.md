@@ -1,6 +1,6 @@
 # Baseline
 
-Stand nach Abschluss von Phase 0 (2026-06-07).
+Stand nach Abschluss von Phase 2 (2026-06-07).
 
 ## Technische Basis
 
@@ -34,8 +34,12 @@ Stand nach Abschluss von Phase 0 (2026-06-07).
 
 ### Vorhanden
 - Gradle-Java-Projekt mit Java 25 Toolchain
-- Minimaler CLI-Einstieg via picocli (`--help`, `--version`, `--modeldir`)
-- YAML-Mapping-Konfiguration via Jackson
+- CLI-Kommandos: `transform`, `validate-mapping`, `inspect-model`
+- `IliModelService` – kompiliert Modelle via ili2c und extrahiert Metadaten
+- `TypeSystemFacade` – stabile Query-API für Klassen, Attribute, Rollen, Typen
+- `IliPath` – Parser für INTERLIS-Pfade (`Model.Topic.Class.Attribute`)
+- `ModelInventory` + `InventorySerializer` – generiert JSON- und Markdown-Inventar
+- Modellinventar-Generierung: Topics, Klassen, Attribute (Typ, Kardinalität, Mandatory), Rollen (Association, Zielklasse), OID-Typen
 - Zwei-Pass-Transformations-Engine (Pass 1: Index, Pass 2: Build + Deferred Refs, Write)
 - INTERLIS-Modellkompilierung via ili2c
 - ITF/XTF I/O via iox-ili (Reader/Writer)
@@ -44,18 +48,17 @@ Stand nach Abschluss von Phase 0 (2026-06-07).
 - `InMemoryStateStore` mit 3-Tier-Fallback für Referenzauflösung
 - `DiagnosticCollector` mit ERROR/WARNING/INFO
 - `GeometryAdapter`-Interface mit NoOp-Implementierung
-- 5 Unit-Tests (ExpressionEngine, MappingCompiler, StateStore, TransformationEngine, CliMain)
+- 14+ Testklassen (Unit + CLI-Integration)
+- Test-ILI-Modelle unter `src/test/data/models/`
 - DMAV V1.1 Testmodelle unter `src/test/data/av/models/`
 
 ### Bekannte Einschränkungen (als TODO dokumentiert)
-- `MappingCompiler` validiert nur YAML-Struktur, nicht gegen INTERLIS-Metamodell
+- `MappingCompiler` validiert nur YAML-Struktur, nicht gegen INTERLIS-Metamodell (Phase 3)
 - Alle Zielwerte werden als String gesetzt (kein typisiertes Value-System)
 - OID-Strategie immer fortlaufende Longs (nicht UUID-kompatibel für DMAV)
 - `ExpressionEngine` nur minimal (nur `if`, Literale, `${path}`)
 - Keine `where`-Filter, Joins, BAG OF STRUCTURE
 - Keine modellbewusste Rollen-/Referenzauflösung
-- YAML-Feld `clazz:` statt `class:` (wird in Phase 1 korrigiert)
-- Source-Matching verwendet `String.contains()` (fragil, wird in Phase 1 korrigiert)
 - Kein `ilivalidator`-Support
 
 ## Repository-Struktur (nach Phase 0)
@@ -78,6 +81,7 @@ Stand nach Abschluss von Phase 0 (2026-06-07).
 ├── src/
 │   ├── main/java/guru/interlis/transformer/
 │   │   ├── app/         (CliMain, JobRunner)
+│   │   ├── cli/         (InspectModelCommand)
 │   │   ├── diag/        (Diagnostic, DiagnosticCollector, Severity)
 │   │   ├── engine/      (TransformationEngine, RuleRuntime)
 │   │   ├── expr/        (ExpressionEngine)
@@ -86,10 +90,13 @@ Stand nach Abschluss von Phase 0 (2026-06-07).
 │   │   ├── mapping/
 │   │   │   ├── compiler/ (MappingCompiler)
 │   │   │   └── model/    (JobConfig, MappingLoader)
+│   │   ├── model/       (IliPath, IliModelService, TypeSystemFacade, ModelInventory, InventorySerializer)
 │   │   └── state/       (StateStore, InMemoryStateStore, ...)
 │   └── test/
-│       ├── java/guru/interlis/transformer/  (5 Testklassen)
-│       └── data/av/                         (Test-Modelle + Transferdaten)
+│       ├── java/guru/interlis/transformer/  (14+ Testklassen inkl. model/, cli/)
+│       └── data/
+│           ├── av/                           (Test-Modelle + Transferdaten)
+│           └── models/                       (minimal.ili, with-enums.ili, with-associations.ili, with-structures.ili)
 └── LICENSE
 ```
 
@@ -99,12 +106,11 @@ Stand nach Abschluss von Phase 0 (2026-06-07).
 - Letzter Commit vor Phase 0: `9d8f5e7` ("move data and add models")
 - Phase 0 umfasst: Hygiene, Umbenennung, CLI-Umbau, Modell-Update
 
-## Nächste Phase: Phase 1 (DSL-/Config-Modell stabilisieren)
+## Nächste Phase: Phase 3 (Typed Mapping Compiler)
 
 Geplante Änderungen:
-- `class:` im YAML statt `clazz:` (via `@JsonProperty`)
-- `sources[].inputs` als Liste unterstützen
-- `version`-Feld für Mapping-Dateien
-- CLI-Befehl `validate-mapping`
-- JSON Schema für Mapping-DSL
-- Fehlerhafte YAML-Strukturen mit klaren Diagnostics melden
+- MappingCompiler gegen TypeSystem prüfen (Klassen, Attribute, Rollen existieren)
+- `TypedPlan`, `RulePlan`, `AssignmentPlan` Datenstrukturen
+- Typkompatibilitäts-Prüfung
+- Mandatory-Coverage-Report
+- Compiler-Report als Markdown/JSON

@@ -1,0 +1,17 @@
+INTERLIS 2.4;
+
+MODEL TestModel (en)
+  AT "http://test.ili-transformer.ch" VERSION "2026-06-07" =
+  TOPIC TestTopic =
+    BASKET OID AS INTERLIS.UUIDOID;
+    OID AS INTERLIS.STANDARDOID;
+
+    CLASS TestClass =
+      Name: MANDATORY TEXT*60;
+      Beschreibung: TEXT*200;
+      Anzahl: 0 .. 9999;
+      Aktiv: BOOLEAN;
+    END TestClass;
+
+  END TestTopic;
+END TestModel.

@@ -1,0 +1,21 @@
+INTERLIS 2.4;
+
+MODEL StructModel (en)
+  AT "http://test.ili-transformer.ch" VERSION "2026-06-07" =
+  TOPIC StructTopic =
+    BASKET OID AS INTERLIS.UUIDOID;
+    OID AS INTERLIS.STANDARDOID;
+
+    STRUCTURE Position =
+      X: MANDATORY 1.000 .. 3.000;
+      Y: MANDATORY 1.000 .. 4.000;
+    END Position;
+
+    CLASS GeoClass =
+      Name: MANDATORY TEXT*60;
+      Pos: Position;
+      MehrerePositionen: BAG {0..*} OF Position;
+    END GeoClass;
+
+  END StructTopic;
+END StructModel.

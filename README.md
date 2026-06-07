@@ -2,7 +2,7 @@
 
 Generic INTERLIS transformation engine.
 
-**Status:** Phase 0 (Baseline) — green build, documented scaffold, preparatory for Phase 1.
+**Status:** Phase 2 (INTERLIS Model Service and Inventory) — in progress.
 **Primary use case:** DM01 ↔ DMAV transformation (scheduled for Phase 10+).
 
 ## Tech baseline
@@ -18,26 +18,33 @@ Generic INTERLIS transformation engine.
 ## Current implementation status
 
 - Two-pass execution engine (index → build + deferred refs → write)
+- `inspect-model` CLI for INTERLIS model inventory (JSON + Markdown output)
+- `IliModelService` + `TypeSystemFacade` + `IliPath` for model metadata extraction
+- `validate-mapping` and `transform` CLI commands
 - Structural YAML mapping validation via `MappingCompiler`
 - INTERLIS model compilation via ili2c (ITF/XTF read/write via iox-ili)
 - Basic expression support (`${alias.attr}`, `if(...)`, string literals)
 - Diagnostics for unresolved/ambiguous references with 3-tier fallback
-- 8 automated tests (unit tests + CLI test)
+- 14+ automated tests (unit tests + CLI tests)
 - DMAV V1.1 test models under `src/test/data/av/models/`
+- Test ILI models under `src/test/data/models/`
 
-### Known limitations (Phase 0)
+### Known limitations (Phase 2)
 
-- No model-aware compiler validation (YAML structure only)
+- No model-aware compiler validation (YAML structure only — planned for Phase 3)
 - All target values set as strings (no typed value system)
 - OID always sequential Long (not UUID-compatible for DMAV)
-- Fragile source input matching via `String.contains()` — to be fixed in Phase 1
-- YAML field uses `clazz:` instead of `class:` — to be fixed in Phase 1
+- No `where`-filter, Joins, BAG OF STRUCTURE in engine
+- No modellbewusste Rollen-/Referenzauflösung
+- No `ilivalidator`-Support
 
 ## Run
 
 ```bash
 ./gradlew test
-./gradlew run --args="path/to/mapping.yaml --modeldir path/to/models"
+./gradlew run --args="inspect-model --model src/test/data/models/minimal.ili --modeldir src/test/data/models/"
+./gradlew run --args="transform path/to/mapping.yaml --modeldir path/to/models"
+./gradlew run --args="validate-mapping --mapping path/to/mapping.yaml"
 ili-transformer --help
 ```
 
@@ -49,7 +56,7 @@ See `docs/SPEC.md` for the full 15-phase specification.
 |---:|---|---|
 | 0 | Baseline, Repository-Hygiene und Namensentscheid | ✅ Done |
 | 1 | DSL-/Config-Modell stabilisieren | Next |
-| 2 | INTERLIS Model Service und Inventory | Planned |
+| 2 | INTERLIS Model Service und Inventory | In Progress |
 | 3 | Typed Mapping Compiler | Planned |
 | 4 | Expression Engine und Function Registry | Planned |
 | 5 | Runtime MVP für 1:1 Scalar Mapping | Planned |

@@ -15,6 +15,9 @@ public final class DiagnosticCode {
     public static final String MAP_UNKNOWN_INPUT = "ILITRF-MAP-UNKNOWN-INPUT";
     public static final String MAP_MISSING_INPUT = "ILITRF-MAP-MISSING-INPUT";
 
+    // Model
+    public static final String MODEL_COMPILE_FAILED = "ILITRF-MODEL-COMPILE-FAILED";
+
     // Runtime
     public static final String RUN_REF_UNRESOLVED = "ILITRF-RUN-REF-UNRESOLVED";
     public static final String RUN_REF_AMBIGUOUS = "ILITRF-RUN-REF-AMBIGUOUS";

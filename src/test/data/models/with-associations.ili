@@ -1,0 +1,24 @@
+INTERLIS 2.4;
+
+MODEL AssocModel (en)
+  AT "http://test.ili-transformer.ch" VERSION "2026-06-07" =
+  TOPIC AssocTopic =
+    BASKET OID AS INTERLIS.UUIDOID;
+    OID AS INTERLIS.STANDARDOID;
+
+    CLASS Parent =
+      Name: MANDATORY TEXT*60;
+    END Parent;
+
+    CLASS Child =
+      Name: MANDATORY TEXT*60;
+      Wert: 0 .. 100;
+    END Child;
+
+    ASSOCIATION ParentChild =
+      ParentRole -- {1} Parent;
+      ChildRole -<> {0..*} Child;
+    END ParentChild;
+
+  END AssocTopic;
+END AssocModel.
