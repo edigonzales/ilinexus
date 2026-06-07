@@ -112,3 +112,44 @@
 - Sollen Associations als eigene `IomObject`-Knoten im Output geschrieben werden (nicht nur als REF-Attribute auf dem Owner-Objekt)?
 - Wie granular soll der Cardinality-Check sein: reicht Prüfung auf `min > 0` (=required) oder soll die tatsächliche Anzahl der aufgelösten Refs pro Rolle gezählt werden?
 - Soll `checkRequiredRefs()` auch bei `DeferredRef`s prüfen, die aufgrund `sourceRef==null` nie erstellt wurden (aktuell: ja)?
+
+## Phase 8 (XLSX-Korrelation importieren)
+
+### Resolved
+- **Apache POI als Build-Time-Dependency**: `compileOnly` (Compile) + `xlsx`-Konfiguration (nur für Gradle-Task, nicht im Runtime-Distribution).
+- **Gradle-Task `importCorrelation`**: `JavaExec`-Task mit separatem Classpath via `configurations.xlsx`. Kein CLI-Befehl in `CliMain`.
+- **`CorrelationWorkbookImporter`**: Parst Sheet `Transformation` über feste Spalten-Indizes (0-basiert). Erkennt Richtungen anhand der Code-Spalten U (DM01→DMAV) und Z (DMAV→DM01). Überspringt leere Zeilen.
+- **`CorrelationHint`-Record**: Enthält `rowNumber`, `sheetName`, `cellPosition`, `Direction`, Quell-/Ziel-Informationen, `transformCode`, `confidence`, `warnings`.
+- **`Direction`-Enum**: `DM01_TO_DMAV`, `DMAV_TO_DM01`.
+- **`CorrelationHintExporter`**: Schreibt `correlation-hints.json` (Jackson) und `correlation-import-report.md` (Statistiken pro Richtung/Code).
+- **Transformationscodes**: `K` (confidence 0.7), `V` (0.5), `I` (0.3). Unbekannte Codes → `ILITRF-DMAV-CORRELATION-PARSE` Warning.
+- **Generierte Artefakte**: `build/generated/dm01-dmav/correlation-hints.json` (137 kB, 250 Hints) und `build/reports/dm01-dmav/correlation-import-report.md`.
+- **Snapshot-Test**: Validiert Anzahl Hints >100, 95%+ valide Codes, beide Richtungen vorhanden.
+
+### Open
+- Sollen die 3 Warnings (Zeile 5 mit Code "T" = vermutlich Legende/Kopfzeile, Zeile 708 mit mehrzeiligem Code "1) K 2) V") durch spezifischeres Parsing eliminiert werden, oder sind sie als dokumentierte Datenqualitäts-Hinweise akzeptabel?
+- Soll das versteckte Sheet `Korrelation` (1197 Zeilen) als zusätzliche Quelle geparst werden?
+- Sollen zusammengeführte Zellen (merged cells) aufgelöst werden?
+- Soll der Import bei künftigen Änderungen der XLSX-Spaltenstruktur über Header-Namen statt Indizes robuster werden?
+
+## Phase 9 (Mapping-Kandidatengenerator)
+
+### Resolved
+- **`MappingCandidate`-Record**: Enthält `id`, `direction`, `sourceClass`, `sourceAttribute`, `targetClass`, `targetAttribute`, `expression`, `transformCode`, `confidence`, `classification`, `origin`, `warnings`.
+- **`MappingCandidateGenerator`**: Pipeline aus Hints laden, Modelle kompilieren, Inventar bauen, Klassennamen auflösen, Candidates generieren, Synonyms ergänzen, deduplizieren, klassifizieren.
+- **Klassifizierung**: `high` (≥0.85), `medium` (0.60-0.84), `low` (0.30-0.59), `manual` (<0.30).
+- **Confidence-Berechnung**: Basis aus Hint + Modell-Validierung (+0.20 beide Attribute gefunden, +0.10 eines gefunden, −0.10 keines; +0.10 wenn target mandatory; K=+0.10, V=0, I=−0.10).
+- **Synonym-Liste**: `src/main/resources/dmav/synonyms.json` — editierbare JSON-Datei mit DM01↔DMAV Attribut-Paaren.
+- **Deduplizierung**: Pro `key()` (sourceClass::attr::targetClass::attr) wird der Candidate mit höchster Confidence behalten.
+- **YAML-Generierung**: `MappingCandidateExporter` baut `JobConfig`-Objekte und serialisiert via Jackson YAMLFactory. High + medium Candidates werden als `assign`-Map geschrieben.
+- **Gradle-Task**: `generateMappingCandidates` (analog Phase 8, kein CLI-Befehl).
+- **`InterlisModelLoader`-Fix**: Modell-Pfade werden jetzt an `DEFAULT_ILIDIRS` angehängt statt ersetzt.
+- **Tests**: 4 Tests (Klassifizierung, Generator-Pipeline gegen `with-references.ili`, Dedup-Prüfung, Synonym-Ladung).
+- **Ausgabe**: `build/generated/dm01-dmav/mapping-candidates.json` (175 Candidates aus DM01-Modell), `build/reports/dm01-dmav/candidate-report.md`.
+
+### Open
+- **DMAV-Modell-Kompilierung**: `DMAV_FixpunkteAVKategorie3_V1_1` scheitert an fehlendem `GeometryCHLV95_V2`. Dieses Modell liegt auf `https://models.geo.admin.ch/` — wird von ili2c aufgelöst, wenn `modeldir` auf `https://models.geo.admin.ch/;src/test/data/av/models/` gesetzt ist? Oder ist das Modell in den ili2c-JARs enthalten?
+- Soll die Confidence-Skalierung für `transformCode` (K=+0.10, I=−0.10) aus den SPEC-Werten (§19.5) feiner abgestimmt werden (+0.40 für expliziten XLSX-Hint statt nur +0.10)?
+- Soll der Generator die generierten YAML-Fragmente automatisch durch `MappingCompiler.compileTyped()` validieren und die Ergebnisse in den Report aufnehmen?
+- Wie granular soll die Klassennamen-Auflösung sein: reine Namengleichheit (aktuell) oder zusätzlich Topic-Matching über `sourceTopic`/`targetTopic` aus den Hints?
+- Soll der Generator auch `refs`-Candidates aus Role-Hints und Assoziationen erzeugen (aktuell nur Attribut-Mappings)?

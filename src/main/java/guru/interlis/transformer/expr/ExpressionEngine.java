@@ -8,6 +8,7 @@ import guru.interlis.transformer.diag.Severity;
 import guru.interlis.transformer.expr.builtins.BasicFunctions;
 import guru.interlis.transformer.expr.builtins.DateFunctions;
 import guru.interlis.transformer.expr.builtins.EnumFunctions;
+import guru.interlis.transformer.expr.builtins.MathFunctions;
 import guru.interlis.transformer.expr.builtins.RefFunctions;
 import guru.interlis.transformer.expr.builtins.StringFunctions;
 import java.util.List;
@@ -33,6 +34,7 @@ public final class ExpressionEngine {
         DateFunctions.registerAll(functionRegistry);
         EnumFunctions.registerAll(functionRegistry);
         RefFunctions.registerAll(functionRegistry);
+        MathFunctions.registerAll(functionRegistry);
     }
 
     public FunctionRegistry functionRegistry() {

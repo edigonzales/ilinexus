@@ -13,6 +13,7 @@ import guru.interlis.transformer.expr.FunctionRegistry;
 import guru.interlis.transformer.expr.builtins.BasicFunctions;
 import guru.interlis.transformer.expr.builtins.DateFunctions;
 import guru.interlis.transformer.expr.builtins.EnumFunctions;
+import guru.interlis.transformer.expr.builtins.MathFunctions;
 import guru.interlis.transformer.expr.builtins.RefFunctions;
 import guru.interlis.transformer.expr.builtins.StringFunctions;
 import guru.interlis.transformer.mapping.model.JobConfig;
@@ -54,6 +55,7 @@ public final class MappingCompiler {
         DateFunctions.registerAll(registry);
         EnumFunctions.registerAll(registry);
         RefFunctions.registerAll(registry);
+        MathFunctions.registerAll(registry);
         return registry;
     }
 
@@ -160,7 +162,8 @@ public final class MappingCompiler {
                 diagnostics,
                 oidStrategy,
                 oidNamespace,
-                basketStrategy
+                basketStrategy,
+                extractEnumMaps(config)
         );
     }
 
@@ -843,6 +846,17 @@ public final class MappingCompiler {
     }
 
     // -- CompileResult -----------------------------------------------------
+
+    private static Map<String, Map<String, String>> extractEnumMaps(JobConfig config) {
+        if (config.mapping.enums == null || config.mapping.enums.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Map<String, String>> result = new HashMap<>();
+        config.mapping.enums.forEach((name, mapping) -> {
+            result.put(name, Map.copyOf(mapping));
+        });
+        return Map.copyOf(result);
+    }
 
     public record CompileResult(JobConfig config, DiagnosticCollector diagnostics) {}
 }

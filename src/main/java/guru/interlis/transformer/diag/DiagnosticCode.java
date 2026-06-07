@@ -50,4 +50,7 @@ public final class DiagnosticCode {
     public static final String EXPR_TYPE = "ILITRF-EXPR-TYPE";
     public static final String EXPR_NON_DETERMINISTIC = "ILITRF-EXPR-NON-DETERMINISTIC";
     public static final String EXPR_UNSUPPORTED = "ILITRF-EXPR-UNSUPPORTED";
+
+    // DM01/DMAV
+    public static final String DMAV_CORRELATION_PARSE = "ILITRF-DMAV-CORRELATION-PARSE";
 }

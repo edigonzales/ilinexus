@@ -19,6 +19,10 @@ repositories {
     }
 }
 
+configurations {
+    xlsx
+}
+
 dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.1'
     implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.1'
@@ -29,9 +33,13 @@ dependencies {
     implementation 'org.slf4j:slf4j-api:2.0.17'
     runtimeOnly 'org.slf4j:slf4j-simple:2.0.17'
 
+    compileOnly 'org.apache.poi:poi-ooxml:5.4.0'
+    xlsx 'org.apache.poi:poi-ooxml:5.4.0'
+
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
     testImplementation 'org.assertj:assertj-core:3.25.3'
     testImplementation 'org.mockito:mockito-core:5.12.0'
+    testImplementation 'org.apache.poi:poi-ooxml:5.4.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -41,4 +49,34 @@ application {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+}
+
+tasks.register('importCorrelation', JavaExec) {
+    group = 'dm01-dmav'
+    description = 'Import DM01↔DMAV correlation hints from XLSX'
+    classpath = sourceSets.main.runtimeClasspath + configurations.xlsx
+    mainClass = 'guru.interlis.transformer.dmav.CorrelationImportTask'
+    args = [
+        '--xlsx', 'docs/dm01-dmav/DMAV_Korrelationstabelle_20260301.xlsx',
+        '--out', 'build/generated/dm01-dmav/correlation-hints.json',
+        '--report', 'build/reports/dm01-dmav/correlation-import-report.md'
+    ]
+}
+
+tasks.register('generateMappingCandidates', JavaExec) {
+    group = 'dm01-dmav'
+    description = 'Generate DM01↔DMAV mapping candidates from correlation hints'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'guru.interlis.transformer.dmav.MappingCandidateTask'
+    args = [
+        '--hints', 'build/generated/dm01-dmav/correlation-hints.json',
+        '--out', 'build/generated/dm01-dmav/mapping-candidates.json',
+        '--report', 'build/reports/dm01-dmav/candidate-report.md',
+        '--dm01-model', 'DM01AVCH24LV95D',
+        '--dm01-dir', 'src/test/data/av/models/;https://models.interlis.ch',
+        '--dmav-model', 'DMAV_FixpunkteAVKategorie3_V1_1',
+        '--dmav-dir', 'src/test/data/av/models/;https://models.interlis.ch',
+        '--yaml-dm01-dmav', 'build/generated/dm01-dmav/dm01-to-dmav.generated.yaml',
+        '--yaml-dmav-dm01', 'build/generated/dm01-dmav/dmav-to-dm01.generated.yaml'
+    ]
 }

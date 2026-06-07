@@ -3,14 +3,17 @@ package guru.interlis.transformer.expr.builtins;
 import guru.interlis.transformer.diag.Diagnostic;
 import guru.interlis.transformer.diag.DiagnosticCode;
 import guru.interlis.transformer.diag.Severity;
+import guru.interlis.transformer.expr.BooleanValue;
 import guru.interlis.transformer.expr.EnumValue;
 import guru.interlis.transformer.expr.EvalContext;
 import guru.interlis.transformer.expr.FunctionDef;
 import guru.interlis.transformer.expr.FunctionRegistry;
 import guru.interlis.transformer.expr.NullValue;
+import guru.interlis.transformer.expr.NumberValue;
 import guru.interlis.transformer.expr.Value;
 import guru.interlis.transformer.mapping.plan.TypeInfo;
 import java.util.List;
+import java.util.Map;
 
 public final class EnumFunctions {
 
@@ -36,15 +39,40 @@ public final class EnumFunctions {
         if (args.size() < 2 || !args.get(0).isDefined()) return NullValue.INSTANCE;
         Value val = args.get(0);
         String mapName = args.get(1).asText();
+        String sourceKey = val.asText();
 
-        if (ctx.diagnostics() != null) {
-            ctx.diagnostics().add(new Diagnostic(
-                    DiagnosticCode.EXPR_UNSUPPORTED, Severity.WARNING,
-                    "enumMap() is not yet fully implemented (Phase 10) – pass-through used for map '"
-                            + mapName + "'",
-                    ctx.ruleId(), "The value is returned unchanged; full enum mapping will be available in Phase 10"));
+        Map<String, Map<String, String>> enumMaps = ctx.enumMaps();
+        if (enumMaps == null || !enumMaps.containsKey(mapName)) {
+            if (ctx.diagnostics() != null) {
+                ctx.diagnostics().add(new Diagnostic(
+                        DiagnosticCode.EXPR_UNSUPPORTED, Severity.WARNING,
+                        "enumMap(): enum mapping table '" + mapName + "' not found in config – pass-through used",
+                        ctx.ruleId(), "Define the enum mapping under mapping.enums."));
+            }
+            return val;
         }
-        return val;
+
+        Map<String, String> mapping = enumMaps.get(mapName);
+        String targetValue = mapping.get(sourceKey);
+        if (targetValue == null) {
+            if (ctx.diagnostics() != null) {
+                ctx.diagnostics().add(new Diagnostic(
+                        DiagnosticCode.EXPR_TYPE, Severity.WARNING,
+                        "enumMap(): no mapping for source value '" + sourceKey + "' in map '" + mapName + "'",
+                        ctx.ruleId(), "Add the missing mapping or use enumDefault() as fallback"));
+            }
+            return NullValue.INSTANCE;
+        }
+
+        if ("true".equalsIgnoreCase(targetValue)) return BooleanValue.TRUE;
+        if ("false".equalsIgnoreCase(targetValue)) return BooleanValue.FALSE;
+
+        try {
+            return new NumberValue(Double.parseDouble(targetValue));
+        } catch (NumberFormatException ignored) {
+        }
+
+        return new EnumValue(targetValue, null);
     }
 
     static Value enumDefault(List<Value> args, EvalContext ctx) {

@@ -1,28 +1,25 @@
 version: 1
 
 job:
-  name: dm01-to-dmav-lfp3
-  description: "Pilot-Transformation DM01 FixpunkteKategorie3.LFP3 nach DMAV FixpunkteAVKategorie3.LFP3"
+  name: dm01-to-dmav-lfp3-test
+  description: "Test transformation for enumMap + div + refs"
   direction: dm01-to-dmav
   failPolicy: strict
-  modeldir:
-    - "https://models.geo.admin.ch/"
-    - "models/"
   inputs:
     - id: dm01
-      path: "input/dm01.itf"
-      model: "DM01AVCH24LV95D"
+      path: "input/test.itf"
+      model: "Dm01TestModel"
       format: "itf"
   outputs:
     - id: dmav
-      path: "build/out/dmav-lfp3.xtf"
-      model: "DMAV_FixpunkteAVKategorie3_V1_1"
+      path: "build/out/dmav-test.xtf"
+      model: "DmavTestModel"
       format: "xtf"
 
 mapping:
   oidStrategy:
     default: deterministicUuid
-    namespace: "dm01-to-dmav-lfp3"
+    namespace: "test-lfp3"
   basketStrategy:
     default: preserveOrGenerateUuid
 
@@ -44,27 +41,27 @@ mapping:
     - id: lfp3-nachfuehrung
       target:
         output: dmav
-        class: "DMAV_FixpunkteAVKategorie3_V1_1.FixpunkteAVKategorie3.LFP3Nachfuehrung"
+        class: "DmavTestModel.Fixpunkte.LFP3Nachfuehrung"
       sources:
         - alias: nf
           input: dm01
-          class: "DM01AVCH24LV95D.FixpunkteKategorie3.LFP3Nachfuehrung"
+          class: "Dm01TestModel.Fixpunkte.LFP3Nachfuehrung"
       identity:
         sourceKey: ["nf.NBIdent", "nf.Identifikator"]
       assign:
         NBIdent: "nf.NBIdent"
         Identifikator: "nf.Identifikator"
         Beschreibung: "truncate(nf.Beschreibung, 60)"
-        GueltigerEintrag: "toXmlDateTime(coalesce(nf.GueltigerEintrag, nf.Datum1, now()))"
+        GueltigerEintrag: "toXmlDateTime(coalesce(nf.GueltigerEintrag, now()))"
 
     - id: lfp3
       target:
         output: dmav
-        class: "DMAV_FixpunkteAVKategorie3_V1_1.FixpunkteAVKategorie3.LFP3"
+        class: "DmavTestModel.Fixpunkte.LFP3"
       sources:
         - alias: p
           input: dm01
-          class: "DM01AVCH24LV95D.FixpunkteKategorie3.LFP3"
+          class: "Dm01TestModel.Fixpunkte.LFP3"
       identity:
         sourceKey: ["p.NBIdent", "p.Nummer"]
       assign:
@@ -72,11 +69,11 @@ mapping:
         Nummer: "p.Nummer"
         LFPArt: "#LFP3"
         Geometrie: "p.Geometrie"
-        Hoehengeometrie: "p.HoeheGeom"
-        Lagegenauigkeit: "div(p.LageGen, 100.0)"
-        IstLagezuverlaessig: "enumMap(p.LageZuv, 'Zuverlaessigkeit_DM01_DMAV')"
-        Hoehengenauigkeit: "div(p.HoeheGen, 100.0)"
-        IstHoehenzuverlaessig: "enumMap(p.HoeheZuv, 'Zuverlaessigkeit_DM01_DMAV')"
+        Hoehengeometrie: "p.Hoehengeometrie"
+        Lagegenauigkeit: "div(p.Lagegenauigkeit, 100.0)"
+        IstLagezuverlaessig: "enumMap(p.IstLagezuverlaessig, 'Zuverlaessigkeit_DM01_DMAV')"
+        Hoehengenauigkeit: "div(p.Hoehengenauigkeit, 100.0)"
+        IstHoehenzuverlaessig: "enumMap(p.IstHoehenzuverlaessig, 'Zuverlaessigkeit_DM01_DMAV')"
         Punktzeichen: "enumMap(p.Punktzeichen, 'Versicherungsart_DM01_DMAV')"
         Grenzpunktfunktion: "#keine"
         AktiverUnterhalt: "true"

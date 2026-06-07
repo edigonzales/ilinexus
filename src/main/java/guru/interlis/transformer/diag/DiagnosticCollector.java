@@ -18,4 +18,12 @@ public final class DiagnosticCollector {
     public boolean hasErrors() {
         return diagnostics.stream().anyMatch(d -> d.severity() == Severity.ERROR);
     }
+
+    public long errors() {
+        return diagnostics.stream().filter(d -> d.severity() == Severity.ERROR).count();
+    }
+
+    public long warnings() {
+        return diagnostics.stream().filter(d -> d.severity() == Severity.WARNING).count();
+    }
 }

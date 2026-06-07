@@ -184,7 +184,7 @@ public final class TransformationEngine {
                 if (matchedSource == null) continue;
 
                 Map<String, IomObject> sources = Map.of(matchedSource.alias(), record.sourceObject());
-                EvalContext evalCtx = new EvalContext(sources, diagnostics, rule.ruleId());
+                EvalContext evalCtx = new EvalContext(sources, diagnostics, rule.ruleId(), plan.enumMaps());
 
                 // Evaluate where filter
                 if (matchedSource.where() != null && !matchedSource.where().isBlank()) {

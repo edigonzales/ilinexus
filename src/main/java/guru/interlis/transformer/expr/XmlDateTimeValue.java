@@ -7,6 +7,11 @@ public record XmlDateTimeValue(ZonedDateTime value) implements Value {
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
 
     @Override
+    public String asText() {
+        return value.format(FORMATTER);
+    }
+
+    @Override
     public Object toNative() {
         return value.format(FORMATTER);
     }

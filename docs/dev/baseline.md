@@ -54,7 +54,14 @@ Stand nach Abschluss von Phase 6 (2026-06-07).
 - **Stable Sorting**: Target-Objekte werden im Writer nach `getobjecttag()` → `getobjectoid()` sortiert
 - **OID-Typ-Validierung**: Compiler prüft `integer`-Strategie gegen `UUIDOID`-Zielmodell
 - **`TransformResult`** – enthält jetzt `oidStrategy`/`basketStrategy` im Summary
-- 82 Tests in 15 Testklassen
+- **RoleResolver** – modellbewusste Rollen-/Referenzauflösung mit Type-Check und Cardinality-Prüfung (Phase 7)
+- **failPolicy-Integration**: `strict` → ERROR, `lenient` → WARNING für Referenzauflösung
+- **DM01↔DMAV XLSX-Import**: Gradle-Task `importCorrelation` via Apache POI (Build-Time, nicht Runtime)
+- **`CorrelationHint`**-Record + Importer/Exporter (250 Hints aus `DMAV_Korrelationstabelle_20260301.xlsx`)
+- **Mapping Candidate Generator**: Gradle-Task `generateMappingCandidates` erzeugt klassifizierte Mapping-Vorschläge aus Hints + Model Inventory
+- **Synonym-Liste**: `src/main/resources/dmav/synonyms.json` mit DM01↔DMAV Attribut-Paaren
+- **YAML-Generierung**: `MappingCandidateExporter` serialisiert `JobConfig` via Jackson → validierbare Mapping-Dateien
+- 91 Tests in 18 Testklassen
 - Test-ILI-Modelle unter `src/test/data/models/`
 - DMAV V1.1 Testmodelle unter `src/test/data/av/models/`
 

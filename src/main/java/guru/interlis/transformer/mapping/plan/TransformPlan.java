@@ -15,5 +15,6 @@ public record TransformPlan(
         DiagnosticCollector diagnostics,
         OidStrategy oidStrategy,
         String oidNamespace,
-        BasketStrategy basketStrategy
+        BasketStrategy basketStrategy,
+        java.util.Map<String, java.util.Map<String, String>> enumMaps
 ) {}
