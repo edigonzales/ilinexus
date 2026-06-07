@@ -1,0 +1,79 @@
+version: 1
+
+job:
+  name: dmav-to-dm01-lfp3-test
+  description: "Test transformation DMAV→DM01 LFP3"
+  direction: dmav-to-dm01
+  failPolicy: strict
+  inputs:
+    - id: dmav
+      path: "input/test.xtf"
+      model: "DmavTestModel"
+      format: "xtf"
+  outputs:
+    - id: dm01
+      path: "build/out/dm01-test.itf"
+      model: "Dm01TestModel"
+      format: "itf"
+
+mapping:
+  oidStrategy:
+    default: integer
+  basketStrategy:
+    default: preserveOrGenerateUuid
+
+  enums:
+    Zuverlaessigkeit_DMAV_DM01:
+      "true": "ja"
+      "false": "nein"
+    Versicherungsart_DMAV_DM01:
+      Stein: "Stein"
+      Kunststoffzeichen: "Kunststoffzeichen"
+      Bolzen: "Bolzen"
+      Rohr: "Rohr"
+      Pfahl: "Pfahl"
+      Kreuz: "Kreuz"
+      unversichert: "unversichert"
+      weitere: "weitere"
+
+  rules:
+    - id: lfp3-nachfuehrung
+      target:
+        output: dm01
+        class: "Dm01TestModel.Fixpunkte.LFP3Nachfuehrung"
+      sources:
+        - alias: nf
+          input: dmav
+          class: "DmavTestModel.Fixpunkte.LFP3Nachfuehrung"
+      identity:
+        sourceKey: ["nf.NBIdent", "nf.Identifikator"]
+      assign:
+        NBIdent: "nf.NBIdent"
+        Identifikator: "nf.Identifikator"
+        Beschreibung: "truncate(nf.Beschreibung, 30)"
+        GueltigerEintrag: "toDate(nf.GueltigerEintrag)"
+
+    - id: lfp3
+      target:
+        output: dm01
+        class: "Dm01TestModel.Fixpunkte.LFP3"
+      sources:
+        - alias: p
+          input: dmav
+          class: "DmavTestModel.Fixpunkte.LFP3"
+      identity:
+        sourceKey: ["p.NBIdent", "p.Nummer"]
+      assign:
+        NBIdent: "p.NBIdent"
+        Nummer: "p.Nummer"
+        Geometrie: "p.Geometrie"
+        Lagegenauigkeit: "mul(p.Lagegenauigkeit, 100.0)"
+        IstLagezuverlaessig: "enumMap(p.IstLagezuverlaessig, 'Zuverlaessigkeit_DMAV_DM01')"
+        Punktzeichen: "enumMap(p.Punktzeichen, 'Versicherungsart_DMAV_DM01')"
+        Protokoll: "#nein"
+      refs:
+        - association: "Entstehung_LFP3"
+          role: "Entstehung"
+          targetObject:
+            rule: lfp3-nachfuehrung
+            sourceRef: "p.Entstehung"

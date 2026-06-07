@@ -19,6 +19,18 @@ public final class MathFunctions {
                 List.of(new FunctionDef.FunctionParam("value", TypeInfo.UNKNOWN),
                         new FunctionDef.FunctionParam("divisor", TypeInfo.NUMERIC)),
                 MathFunctions::div);
+
+        registry.register("mul", TypeInfo.NUMERIC,
+                List.of(new FunctionDef.FunctionParam("value", TypeInfo.UNKNOWN),
+                        new FunctionDef.FunctionParam("factor", TypeInfo.NUMERIC)),
+                MathFunctions::mul);
+    }
+
+    static Value mul(List<Value> args, EvalContext ctx) {
+        if (args.size() < 2 || !args.get(0).isDefined()) return NullValue.INSTANCE;
+        double value = toDouble(args.get(0));
+        double factor = toDouble(args.get(1));
+        return new NumberValue(value * factor);
     }
 
     static Value div(List<Value> args, EvalContext ctx) {
