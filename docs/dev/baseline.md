@@ -1,6 +1,6 @@
 # Baseline
 
-Stand nach Abschluss von Phase 3 (2026-06-07).
+Stand nach Abschluss von Phase 5 (2026-06-07).
 
 ## Technische Basis
 
@@ -49,18 +49,19 @@ Stand nach Abschluss von Phase 3 (2026-06-07).
 - `InMemoryStateStore` mit 3-Tier-Fallback für Referenzauflösung
 - `DiagnosticCollector` mit ERROR/WARNING/INFO
 - `GeometryAdapter`-Interface mit NoOp-Implementierung
-- 67 Tests in 11 Testklassen
+- **`TransformResult`** – Summary mit sourceRecordsRead, sourceRecordsFiltered, targetsCreated, targetsWritten, errors, warnings
+- 70 Tests in 12 Testklassen
 - Test-ILI-Modelle unter `src/test/data/models/`
 - DMAV V1.1 Testmodelle unter `src/test/data/av/models/`
 
 ### Bekannte Einschränkungen (als TODO dokumentiert)
-- Alle Zielwerte werden als String gesetzt (kein typisiertes Value-System) — Phase 4
+- `where`-Filter auf Rule-Ebene wird jetzt ausgewertet (Phase 5) ✅
+- Alle Zielwerte werden als String gesetzt (kein typisiertes Value-System) — Phase 4 ✅ (ExpressionEngine hat typisierte Values, Engine verwendet `toNative().toString()`)
 - OID-Strategie immer fortlaufende Longs (nicht UUID-kompatibel für DMAV) — Phase 6
-- `ExpressionEngine` nur minimal (nur `if`, Literale, `${path}`) — Phase 4
-- Typ-Inferenz für Funktionsaufrufe noch nicht (alle als UNKNOWN) — Phase 4
-- Keine `where`-Filter, Joins, BAG OF STRUCTURE — spätere Phasen
+- Keine Joins, BAG OF STRUCTURE — spätere Phasen
 - Keine modellbewusste Rollen-/Referenzauflösung in Runtime — Phase 7
 - Kein `ilivalidator`-Support — Phase 10+
+- XTF-Reader mit Modellkontext liest eigene Output-Dateien nicht zurück (IoxSyntaxException)
 
 ## Repository-Struktur (nach Phase 0)
 
@@ -107,14 +108,11 @@ Stand nach Abschluss von Phase 3 (2026-06-07).
 - Letzter Commit vor Phase 0: `9d8f5e7` ("move data and add models")
 - Phase 0 umfasst: Hygiene, Umbenennung, CLI-Umbau, Modell-Update
 
-## Nächste Phase: Phase 4 (Expression Engine und Function Registry)
+## Nächste Phase: Phase 6 (OID-, Basket- und Writer-Strategien)
 
 Geplante Änderungen:
-- Expression AST oder kontrollierte Integration einer Expression-Library
-- `FunctionRegistry` mit INTERLIS-spezifischen Funktionen
-- Basisfunktionen: `if`, `coalesce`, `default`, `isNull`, `isDefined`
-- Stringfunktionen: `concat`, `substring`, `trim`, `upper`, `lower`, `replace`, `truncate`
-- Datumsfunktionen: `date`, `dateTime`, `xmlDateTime`, `today`
-- Enumfunktionen: `enumMap`, `enumDefault`, `enumName`
-- Typisierte Value-Objekte (keine Strings)
-- Typ-Inferenz für Funktionsaufrufe im Compiler
+- OID-Strategien: `preserve`, `integer`, `uuid`, `deterministicUuid`
+- Basket-Strategien: `preserve`, `fixed`, `perTopic`, `fromExpression`
+- Deterministic UUIDs (UUIDv5) für DMAV
+- Stable sorting für reproduzierbare Golden-Tests
+- Writer-Reihenfolge nach Modell-/Topic-/Klassenabhängigkeiten

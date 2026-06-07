@@ -226,11 +226,13 @@ Der `MappingCompiler` validiert die Mapping-Datei und erzeugt einen `CompileResu
 ili-transformer validate-mapping --mapping my-mapping.yaml
 ```
 
-## Nicht unterstützte Konstrukte (Phase 1)
+## Nicht unterstützte Konstrukte (Phase 5)
 
 Folgende DSL-Felder sind im Datenmodell vorbereitet, werden aber in der Runtime noch nicht ausgewertet:
 - `bags` (erst Phase 12)
 - `create` (noch nicht implementiert)
 - `joins` (noch nicht implementiert)
-- `where` auf Rule-Ebene (noch nicht implementiert)
 - `metadata.lossiness` (rein dokumentativ)
+
+Ab Phase 5 unterstützt:
+- `where` auf Source-Ebene: Filter-Expression, die Quellobjekte vor der Transformation filtert. Unterstützt `!= null`, `== null`, `defined()`, `notDefined()`, Funktionsaufrufe und `${alias.attr}`-Pfadreferenzen.

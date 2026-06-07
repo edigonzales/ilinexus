@@ -1,5 +1,9 @@
 package guru.interlis.transformer.engine;
 
+import ch.interlis.ili2c.metamodel.Container;
+import ch.interlis.ili2c.metamodel.Model;
+import ch.interlis.ili2c.metamodel.Table;
+import ch.interlis.ili2c.metamodel.Topic;
 import ch.interlis.iom.IomObject;
 import ch.interlis.iom_j.Iom_jObject;
 import ch.interlis.iox.EndBasketEvent;
@@ -13,6 +17,7 @@ import guru.interlis.transformer.diag.Diagnostic;
 import guru.interlis.transformer.diag.DiagnosticCode;
 import guru.interlis.transformer.diag.DiagnosticCollector;
 import guru.interlis.transformer.diag.Severity;
+import guru.interlis.transformer.expr.BooleanValue;
 import guru.interlis.transformer.expr.EvalContext;
 import guru.interlis.transformer.expr.ExpressionEngine;
 import guru.interlis.transformer.expr.NullValue;
@@ -44,25 +49,55 @@ public final class TransformationEngine {
         this.diagnostics = diagnostics;
     }
 
+    // Counters for summary
+    private long sourceRecordsRead;
+    private long sourceRecordsFiltered;
+    private long targetsCreated;
+    private long targetsWritten;
+    private long engineErrors;
+    private long engineWarnings;
+
     // -- Legacy API (Phase 1-2) --------------------------------------------
 
-    public void run(JobConfig config, Function<JobConfig.InputSpec, IoxReader> readerFactory,
-                    Map<String, IoxWriter> writersByOutputId) throws Exception {
+    public TransformResult run(JobConfig config, Function<JobConfig.InputSpec, IoxReader> readerFactory,
+                                Map<String, IoxWriter> writersByOutputId) throws Exception {
+        resetCounters();
         pass1IndexLegacy(config, readerFactory);
         Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket = pass2BuildTargetsLegacy(config);
         resolveDeferredRefs();
-        writeOutputsLegacy(config, writersByOutputId, objectsByOutputAndBasket);
+        targetsWritten = writeOutputsLegacy(config, writersByOutputId, objectsByOutputAndBasket);
+        return buildResult();
     }
 
-    // -- Typed API (Phase 3) ------------------------------------------------
+    // -- Typed API (Phase 3+) -----------------------------------------------
 
-    public void runTyped(TransformPlan plan,
-                          Function<String, IoxReader> readerFactoryById,
-                          Map<String, IoxWriter> writersByOutputId) throws Exception {
+    public TransformResult runTyped(TransformPlan plan,
+                                     Function<String, IoxReader> readerFactoryById,
+                                     Map<String, IoxWriter> writersByOutputId) throws Exception {
+        resetCounters();
         pass1Index(plan, readerFactoryById);
         Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket = pass2BuildTargets(plan);
         resolveDeferredRefs();
-        writeOutputs(plan, writersByOutputId, objectsByOutputAndBasket);
+        targetsWritten = writeOutputs(plan, writersByOutputId, objectsByOutputAndBasket);
+        return buildResult();
+    }
+
+    private void resetCounters() {
+        sourceRecordsRead = 0;
+        sourceRecordsFiltered = 0;
+        targetsCreated = 0;
+        targetsWritten = 0;
+        engineErrors = 0;
+        engineWarnings = 0;
+    }
+
+    private TransformResult buildResult() {
+        for (Diagnostic d : diagnostics.all()) {
+            if (d.severity() == Severity.ERROR) engineErrors++;
+            else if (d.severity() == Severity.WARNING) engineWarnings++;
+        }
+        return new TransformResult(sourceRecordsRead, sourceRecordsFiltered,
+                targetsCreated, targetsWritten, engineErrors, engineWarnings);
     }
 
     // -- Pass 1: Source Scan / Indexing ------------------------------------
@@ -90,6 +125,7 @@ public final class TransformationEngine {
                             IomObject source = obj.getIomObject();
                             stateStore.indexSourceObject(source.getobjecttag(), inputId, basketId, source);
                             stateStore.addSourceRecord(new SourceRecord(inputId, basketId, source.getobjecttag(), source));
+                            sourceRecordsRead++;
                         }
                     }
                 } finally {
@@ -121,6 +157,7 @@ public final class TransformationEngine {
                         IomObject source = obj.getIomObject();
                         stateStore.indexSourceObject(source.getobjecttag(), input.id, basketId, source);
                         stateStore.addSourceRecord(new SourceRecord(input.id, basketId, source.getobjecttag(), source));
+                        sourceRecordsRead++;
                     }
                 }
             } finally {
@@ -138,12 +175,23 @@ public final class TransformationEngine {
                 SourcePlan matchedSource = findMatchingSource(rule, record);
                 if (matchedSource == null) continue;
 
-                Iom_jObject target = new Iom_jObject(
-                        rule.targetClass().getName(),
-                        Long.toString(stateStore.nextOid()));
                 Map<String, IomObject> sources = Map.of(matchedSource.alias(), record.sourceObject());
-
                 EvalContext evalCtx = new EvalContext(sources, diagnostics, rule.ruleId());
+
+                // Evaluate where filter
+                if (matchedSource.where() != null && !matchedSource.where().isBlank()) {
+                    Value whereResult = expressionEngine.evaluate(matchedSource.where(), evalCtx);
+                    if (!isFilterTruthy(whereResult)) {
+                        sourceRecordsFiltered++;
+                        continue;
+                    }
+                }
+
+                Iom_jObject target = new Iom_jObject(
+                        getScopedName(rule.targetClass()),
+                        Long.toString(stateStore.nextOid()));
+                targetsCreated++;
+
                 for (AssignmentPlan ap : rule.assignments()) {
                     Value value = expressionEngine.evaluate(ap.expression(), evalCtx);
                     if (value.isDefined()) {
@@ -159,7 +207,7 @@ public final class TransformationEngine {
                     String sourceRefOid = readSourceReferenceOid(record.sourceObject(), ref.sourceRef());
                     if (sourceRefOid != null && !sourceRefOid.isBlank()) {
                         stateStore.addDeferredRef(new DeferredRef(
-                                rule.targetClass().getName(),
+                                getScopedName(rule.targetClass()),
                                 target.getobjectoid(),
                                 ref.targetRoleName(),
                                 record.sourceClass(),
@@ -174,12 +222,12 @@ public final class TransformationEngine {
                 stateStore.putIdMapping(
                         new SourceRefKey(record.sourceClass(), record.sourceObject().getobjectoid(),
                                 record.sourceFileId(), record.sourceBasketId()),
-                        new TargetRefValue(rule.targetClass().getName(), target.getobjectoid(),
+                        new TargetRefValue(getScopedName(rule.targetClass()), target.getobjectoid(),
                                 rule.outputId(), record.sourceBasketId())
                 );
-                stateStore.indexTargetObject(rule.targetClass().getName(), target.getobjectoid(), target);
+                stateStore.indexTargetObject(getScopedName(rule.targetClass()), target.getobjectoid(), target);
 
-                String basketKey = basketKey(extractTopic(rule.targetClass().getName()), record.sourceBasketId());
+                String basketKey = basketKey(extractTopic(getScopedName(rule.targetClass())), record.sourceBasketId());
                 objectsByOutputAndBasket
                         .computeIfAbsent(rule.outputId(), ignored -> new LinkedHashMap<>())
                         .computeIfAbsent(basketKey, ignored -> new ArrayList<>())
@@ -202,6 +250,7 @@ public final class TransformationEngine {
 
                 Iom_jObject target = new Iom_jObject(rule.getEffectiveTargetClass(),
                         Long.toString(stateStore.nextOid()));
+                targetsCreated++;
                 Map<String, IomObject> sources = Map.of(sourceSpec.alias, record.sourceObject());
                 EvalContext evalCtxLegacy = new EvalContext(sources, diagnostics, rule.id);
                 for (JobConfig.AttributeMapping attr : rule.getAllAttributes()) {
@@ -251,8 +300,9 @@ public final class TransformationEngine {
 
     // -- Writer ------------------------------------------------------------
 
-    private void writeOutputs(TransformPlan plan, Map<String, IoxWriter> writersByOutputId,
+    private long writeOutputs(TransformPlan plan, Map<String, IoxWriter> writersByOutputId,
                                Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket) throws Exception {
+        long written = 0;
         for (var entry : writersByOutputId.entrySet()) {
             String outputId = entry.getKey();
             IoxWriter writer = entry.getValue();
@@ -265,6 +315,7 @@ public final class TransformationEngine {
                 writer.write(new ch.interlis.iox_j.StartBasketEvent(topic, basketId));
                 for (IomObject target : basketEntry.getValue()) {
                     writer.write(new ch.interlis.iox_j.ObjectEvent(target));
+                    written++;
                 }
                 writer.write(new ch.interlis.iox_j.EndBasketEvent());
             }
@@ -272,10 +323,12 @@ public final class TransformationEngine {
             writer.flush();
             writer.close();
         }
+        return written;
     }
 
-    private void writeOutputsLegacy(JobConfig config, Map<String, IoxWriter> writersByOutputId,
+    private long writeOutputsLegacy(JobConfig config, Map<String, IoxWriter> writersByOutputId,
                                      Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket) throws Exception {
+        long written = 0;
         for (JobConfig.OutputSpec output : config.job.outputs) {
             IoxWriter writer = writersByOutputId.get(output.id);
             writer.write(new ch.interlis.iox_j.StartTransferEvent("ilinexus", null, null));
@@ -287,6 +340,7 @@ public final class TransformationEngine {
                 writer.write(new ch.interlis.iox_j.StartBasketEvent(topic, basketId));
                 for (IomObject target : basketEntry.getValue()) {
                     writer.write(new ch.interlis.iox_j.ObjectEvent(target));
+                    written++;
                 }
                 writer.write(new ch.interlis.iox_j.EndBasketEvent());
             }
@@ -294,6 +348,7 @@ public final class TransformationEngine {
             writer.flush();
             writer.close();
         }
+        return written;
     }
 
     // -- Shared helpers ----------------------------------------------------
@@ -302,7 +357,7 @@ public final class TransformationEngine {
         for (SourcePlan sp : rule.sources()) {
             if (sp.sourceClass() == null) continue;
             if (!sp.inputIds().contains(record.sourceFileId())) continue;
-            if (sp.sourceClass().getName().equals(record.sourceClass())) {
+            if (getScopedName(sp.sourceClass()).equals(record.sourceClass())) {
                 return sp;
             }
         }
@@ -377,6 +432,25 @@ public final class TransformationEngine {
 
     private String basketKey(String topic, String basketId) {
         return topic + "::" + (basketId == null ? "" : basketId);
+    }
+
+    private static boolean isFilterTruthy(Value value) {
+        if (value == null || value.isNull()) return false;
+        if (value instanceof BooleanValue bv) return bv.value();
+        if (value instanceof guru.interlis.transformer.expr.TextValue tv) return !tv.value().isEmpty();
+        if (value instanceof guru.interlis.transformer.expr.NumberValue nv) return nv.value() != 0;
+        return true;
+    }
+
+    private static String getScopedName(Table table) {
+        Container container = table.getContainer();
+        if (container instanceof Topic topic) {
+            Container modelContainer = topic.getContainer();
+            if (modelContainer instanceof Model model) {
+                return model.getName() + "." + topic.getName() + "." + table.getName();
+            }
+        }
+        return table.getName();
     }
 
     private record RefCall(String alias, String roleName) {}

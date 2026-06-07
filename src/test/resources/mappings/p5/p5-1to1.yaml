@@ -1,0 +1,30 @@
+version: 1
+
+job:
+  name: "Phase 5 1:1 scalar test"
+  description: "Copy SourceClass -> TargetClass with scalar attributes"
+  modeldir:
+    - "src/test/data/models/"
+  inputs:
+    - id: source-input
+      path: "src/test/resources/transfers/p5/input.xtf"
+      model: "P5Model"
+  outputs:
+    - id: target-output
+      path: "build/tmp/p5-test-output.xtf"
+      model: "P5Model"
+
+mapping:
+  rules:
+    - id: copy-rule
+      target:
+        output: target-output
+        class: "P5Model.P5Topic.TargetClass"
+      sources:
+        - alias: src
+          input: source-input
+          class: "P5Model.P5Topic.SourceClass"
+      assign:
+        Label: "${src.Name}"
+        Size: "${src.Anzahl}"
+        Enabled: "${src.Aktiv}"

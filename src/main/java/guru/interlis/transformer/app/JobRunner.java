@@ -6,6 +6,7 @@ import ch.interlis.iox.IoxWriter;
 import guru.interlis.transformer.diag.Diagnostic;
 import guru.interlis.transformer.diag.DiagnosticCollector;
 import guru.interlis.transformer.diag.Severity;
+import guru.interlis.transformer.engine.TransformResult;
 import guru.interlis.transformer.engine.TransformationEngine;
 import guru.interlis.transformer.expr.ExpressionEngine;
 import guru.interlis.transformer.interlis.InterlisIoFactory;
@@ -101,12 +102,14 @@ public final class JobRunner {
         DiagnosticCollector engineDiag = new DiagnosticCollector();
         TransformationEngine engine = new TransformationEngine(new ExpressionEngine(),
                 new InMemoryStateStore(), engineDiag);
-        engine.runTyped(plan, readerByInputId::get, writersByOutputId);
+        TransformResult result = engine.runTyped(plan, readerByInputId::get, writersByOutputId);
 
         // Merge engine diagnostics into compiler diagnostics
         for (Diagnostic d : engineDiag.all()) {
             plan.diagnostics().add(d);
         }
+
+        System.out.println(result.summary());
 
         return plan.diagnostics();
     }

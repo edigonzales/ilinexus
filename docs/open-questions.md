@@ -58,3 +58,17 @@
 - Soll der Parser auch arithmetische Ausdrücke (`+`, `-`, `*`, `/`) unterstützen? Aktuell nicht.
 - Sollen Vergleichsoperatoren (`>`, `<`, `>=`, `<=`) unterstützt werden? Aktuell nur `!= null`/`== null`.
 - Sollen `lookupOne`/`lookupMany` (StateStore-Lookups) bereits in Phase 4 implementiert werden aber Zugriff auf StateStore erst in Phase 5?
+
+## Phase 5 (Runtime MVP für 1:1 Scalar Mapping)
+
+### Resolved
+- **`where`-Filter aktiviert**: `SourcePlan.where` wird jetzt in `pass2BuildTargets()` via `ExpressionEngine.evaluate()` ausgewertet. Null/leer/false-Werte filtern SourceRecords aus.
+- **`getScopedName(Table)`-Bugfix**: `Table.getName()` liefert den einfachen Namen (`"SourceClass"`), aber `IomObject.getobjecttag()` den vollqualifizierten Namen (`"P5Model.P5Topic.SourceClass"`). Die Engine nutzt jetzt `getScopedName()` zum Matchen von SourceRecords und zum Erstellen von Zielobjekten.
+- **`TransformResult`**: Neue Record-Klasse mit Summary-Statistiken (sourceRecordsRead, sourceRecordsFiltered, targetsCreated, targetsWritten, errors, warnings). Wird von `runTyped()` und `run()` zurückgegeben.
+- **Integration-Test**: `Phase5IntegrationTest` mit echten ILI-Modellen (`p5-test.ili`), Mock-Readern für Source-Objekte und realen `XtfWriter`s für Output.
+- **Output-Verifikation**: Der XTF-Output wird auf Existenz und Inhalt geprüft (String-basierte Verifikation). XTF-Reader mit Modellkontext kann die eigenen Output-Dateien nicht zurücklesen (IoxSyntaxException "Unexpected XML event transfer found").
+
+### Open
+- Warum kann der `XtfReader` mit `TransferDescription`-Modellkontext die vom `XtfWriter` geschriebenen Dateien nicht lesen? "Unexpected XML event transfer found" deutet auf eine Namespace-Erwartungshaltung des Xtf23Readers hin.
+- Soll die Engine die Output-Objekte zum Verifizieren zurückgeben, statt auf XTF-Readback angewiesen zu sein?
+- Soll `Iom_jObject.setattrvalue()` typisierte Werte erhalten (nicht nur Strings)? Derzeit nutzt die Engine `value.toNative().toString()`, was für skalare Typen funktioniert.

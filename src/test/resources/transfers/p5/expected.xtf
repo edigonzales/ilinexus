@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ili:transfer xmlns:ili="http://www.interlis.ch/xtf/2.4/INTERLIS"
+  xmlns:P5Model="http://www.interlis.ch/xtf/2.4/P5Model">
+  <ili:headersection>
+    <ili:models>
+      <ili:model>P5Model</ili:model>
+    </ili:models>
+    <ili:sender>ili-transformer</ili:sender>
+  </ili:headersection>
+  <ili:datasection>
+    <ili:P5Model.P5Topic bid="1">
+      <ili:P5Model.P5Topic.TargetClass tid="2">
+        <ili:Label>Alice</ili:Label>
+        <ili:Size>42</ili:Size>
+        <ili:Enabled>true</ili:Enabled>
+      </ili:P5Model.P5Topic.TargetClass>
+      <ili:P5Model.P5Topic.TargetClass tid="3">
+        <ili:Label>Bob</ili:Label>
+        <ili:Size>7</ili:Size>
+        <ili:Enabled>false</ili:Enabled>
+      </ili:P5Model.P5Topic.TargetClass>
+    </ili:P5Model.P5Topic>
+  </ili:datasection>
+</ili:transfer>

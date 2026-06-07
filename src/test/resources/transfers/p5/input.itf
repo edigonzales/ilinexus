@@ -1,0 +1,12 @@
+FORMAT
+  FREE
+TABLES
+  P5Model.P5Topic.SourceClass
+    OBJECT 1
+      Name "Alice"
+      Anzahl 42
+      Aktiv true
+    OBJECT 2
+      Name "Bob"
+      Anzahl 7
+      Aktiv false
