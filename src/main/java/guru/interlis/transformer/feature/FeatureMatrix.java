@@ -284,6 +284,36 @@ public final class FeatureMatrix {
                 "Multi-source equi-joins, create directives, rule dependency ordering",
                 "InnerJoinTest, LeftJoinTest, CreateAdditionalObjectTest"));
 
+        entries.add(FeatureEntry.of("RuleDispatchIndex", "26",
+                FeatureStatus.SUPPORTED,
+                "Pre-computed O(1) rule dispatch per (inputId, sourceClass); eliminates SourceRecord x Rule full scan",
+                "RuleDispatchIndexTest"));
+
+        entries.add(FeatureEntry.of("ExecutionMetrics und Performance-Report", "26",
+                FeatureStatus.SUPPORTED,
+                "Laufzeitmessung, Join-/BAG-Lookup-Zähler, Targets-by-Class; integriert in JSON/Markdown-Report",
+                "ExecutionMetricsTest"));
+
+        entries.add(FeatureEntry.of("Service-Dekomposition der TransformationEngine", "26",
+                FeatureStatus.SUPPORTED,
+                "SourceIndexingService, RuleExecutionService, TargetObjectFactory, AssignmentExecutionService, OutputWritingService",
+                "TransformationEngineIntegrationTest"));
+
+        entries.add(FeatureEntry.of("Deterministic Output Order", "26",
+                FeatureStatus.SUPPORTED,
+                "Output sortiert nach basketId, class, oid; reproduzierbar über mehrere Runs",
+                "DeterministicOutputOrderTest"));
+
+        entries.add(FeatureEntry.of("Real Dataset Smoke Tests (DM01+DMAV)", "26",
+                FeatureStatus.SUPPORTED,
+                "Vollständige Datensätze mit Modellen einlesen; Objektzahlen pro Topic/Klasse berichten",
+                "FullDm01ReadSmokeTest, FullDmavReadSmokeTest"));
+
+        entries.add(FeatureEntry.of("RealDatasetCatalog", "26",
+                FeatureStatus.SUPPORTED,
+                "Scan/Classify von Transfer-Dateien ohne harte Dateinamen; requireSingleItf/Xtf",
+                "RealDatasetCatalogTest"));
+
         entries.add(FeatureEntry.of("Persistent StateStore", "-",
                 FeatureStatus.UNSUPPORTED,
                 "Disk-backed or database-backed state store",

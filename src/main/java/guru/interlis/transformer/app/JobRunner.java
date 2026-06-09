@@ -19,7 +19,19 @@ import guru.interlis.transformer.mapping.plan.FailPolicy;
 import guru.interlis.transformer.mapping.plan.OutputBinding;
 import guru.interlis.transformer.mapping.plan.TransformPlan;
 import guru.interlis.transformer.model.ModelRegistry;
+import guru.interlis.transformer.engine.ExecutionMetrics;
+import guru.interlis.transformer.engine.ExecutionMetricsSnapshot;
+import guru.interlis.transformer.engine.RuleDispatchIndex;
+import guru.interlis.transformer.geometry.IoxGeometryAdapter;
+import guru.interlis.transformer.state.DefaultOidGenerationService;
+import guru.interlis.transformer.state.InMemoryParentChildIndex;
+import guru.interlis.transformer.state.InMemoryReferenceIndex;
+import guru.interlis.transformer.state.InMemorySourceLookupIndex;
 import guru.interlis.transformer.state.InMemoryStateStore;
+import guru.interlis.transformer.state.ParentChildIndex;
+import guru.interlis.transformer.state.ReferenceIndex;
+import guru.interlis.transformer.state.SourceLookupIndex;
+import guru.interlis.transformer.state.StateStore;
 import guru.interlis.transformer.validation.InProcessIlivalidatorService;
 import guru.interlis.transformer.validation.TransferValidationService;
 import guru.interlis.transformer.validation.ValidationResult;
@@ -97,7 +109,7 @@ public final class JobRunner {
             System.out.println("REPORT_ONLY mode: compilation successful. Skipping transformation run.");
             if (options.reportDirectory() != null) {
                 writeReports(plan, null, new DiagnosticCollector(), List.of(),
-                        Duration.ZERO, Map.of(), options.reportDirectory());
+                        Duration.ZERO, Map.of(), null, options.reportDirectory());
             }
             return plan.diagnostics();
         }
@@ -105,6 +117,7 @@ public final class JobRunner {
         Instant start = Instant.now();
         DiagnosticCollector engineDiag = new DiagnosticCollector();
         TransformResult result = null;
+        ExecutionMetricsSnapshot metricsSnapshot = null;
         List<ValidationResult> validationResults = new ArrayList<>();
         boolean committed = false;
 
@@ -143,10 +156,19 @@ public final class JobRunner {
             }
 
             if (!engineDiag.hasErrors() && !readerByInputId.isEmpty()) {
-                TransformationEngine engine = new TransformationEngine(new ExpressionEngine(),
-                        new InMemoryStateStore(), engineDiag);
+                StateStore stateStore = new InMemoryStateStore();
+                ReferenceIndex refIndex = new InMemoryReferenceIndex();
+                SourceLookupIndex slIndex = new InMemorySourceLookupIndex();
+                ParentChildIndex pcIndex = new InMemoryParentChildIndex();
+                ExecutionMetrics metrics = new ExecutionMetrics();
+
+                TransformationEngine engine = new TransformationEngine(
+                        new ExpressionEngine(), stateStore, engineDiag,
+                        new IoxGeometryAdapter(), new DefaultOidGenerationService(),
+                        refIndex, slIndex, pcIndex, metrics);
                 try {
                     result = engine.runTyped(plan, readerByInputId::get, writersByOutputId);
+                    metricsSnapshot = engine.getMetricsSnapshot();
                 } catch (Exception e) {
                     engineDiag.add(new Diagnostic(DiagnosticCode.COMMIT_FAILED,
                             Severity.ERROR, "Transformation engine failed: " + e.getMessage(), null, null));
@@ -229,6 +251,9 @@ public final class JobRunner {
         if (result != null) {
             System.out.println(result.summary());
         }
+        if (metricsSnapshot != null && metricsSnapshot.elapsedMillis() > 0) {
+            System.out.println(metricsSnapshot.summary());
+        }
         if (committed) {
             System.out.println("Output committed successfully.");
         }
@@ -237,7 +262,7 @@ public final class JobRunner {
         if (options.reportDirectory() != null) {
             Map<String, String> modelVersions = collectModelVersions(plan);
             writeReports(plan, result, engineDiag, validationResults, elapsed, modelVersions,
-                    options.reportDirectory());
+                    metricsSnapshot, options.reportDirectory());
         }
 
         return plan.diagnostics();
@@ -274,6 +299,7 @@ public final class JobRunner {
                                DiagnosticCollector diagnostics,
                                List<ValidationResult> validationResults,
                                Duration elapsed, Map<String, String> modelVersions,
+                               ExecutionMetricsSnapshot metricsSnapshot,
                                Path reportDirectory) {
         try {
             TransformationReportWriter reportWriter = new TransformationReportWriter();
@@ -281,9 +307,11 @@ public final class JobRunner {
                     : new TransformResult(0, 0, 0, 0, 0, 0, "-", "-");
 
             reportWriter.writeJson(reportDirectory.resolve("transformation-report.json"),
-                    plan, safeResult, diagnostics, validationResults, elapsed, modelVersions);
+                    plan, safeResult, diagnostics, validationResults, elapsed, modelVersions,
+                    metricsSnapshot);
             reportWriter.writeMarkdown(reportDirectory.resolve("transformation-report.md"),
-                    plan, safeResult, diagnostics, validationResults, elapsed, modelVersions);
+                    plan, safeResult, diagnostics, validationResults, elapsed, modelVersions,
+                    metricsSnapshot);
             System.out.println("Reports written to: " + reportDirectory);
         } catch (IOException e) {
             System.err.println("Failed to write reports: " + e.getMessage());

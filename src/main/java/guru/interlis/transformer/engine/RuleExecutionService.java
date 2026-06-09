@@ -1,0 +1,371 @@
+package guru.interlis.transformer.engine;
+
+import ch.interlis.iom.IomObject;
+import guru.interlis.transformer.diag.Diagnostic;
+import guru.interlis.transformer.diag.DiagnosticCode;
+import guru.interlis.transformer.diag.DiagnosticCollector;
+import guru.interlis.transformer.diag.Severity;
+import guru.interlis.transformer.expr.BooleanValue;
+import guru.interlis.transformer.expr.EvalContext;
+import guru.interlis.transformer.expr.ExpressionEngine;
+import guru.interlis.transformer.expr.FunctionCallExpr;
+import guru.interlis.transformer.expr.PathExpr;
+import guru.interlis.transformer.expr.Value;
+import guru.interlis.transformer.geometry.GeometryAdapter;
+import guru.interlis.transformer.mapping.plan.BagPlan;
+import guru.interlis.transformer.mapping.plan.CreatePlan;
+import guru.interlis.transformer.mapping.plan.InputBinding;
+import guru.interlis.transformer.mapping.plan.JoinCardinality;
+import guru.interlis.transformer.mapping.plan.JoinPlan;
+import guru.interlis.transformer.mapping.plan.JoinType;
+import guru.interlis.transformer.mapping.plan.RuleDependencyGraph;
+import guru.interlis.transformer.mapping.plan.RulePlan;
+import guru.interlis.transformer.mapping.plan.SourcePlan;
+import guru.interlis.transformer.mapping.plan.TransformPlan;
+import guru.interlis.transformer.mapping.plan.TypeInfo;
+import guru.interlis.transformer.model.TypeSystemFacade;
+import guru.interlis.transformer.state.CanonicalValue;
+import guru.interlis.transformer.state.LookupKey;
+import guru.interlis.transformer.state.ParentChildIndex;
+import guru.interlis.transformer.state.SourceLookupIndex;
+import guru.interlis.transformer.state.SourceRecord;
+import guru.interlis.transformer.state.StateStore;
+
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+public final class RuleExecutionService {
+
+    private final ExpressionEngine expressionEngine;
+    private final TargetObjectFactory targetObjectFactory;
+    private final GeometryAdapter geometryAdapter;
+
+    public RuleExecutionService(ExpressionEngine expressionEngine,
+                                 TargetObjectFactory targetObjectFactory,
+                                 GeometryAdapter geometryAdapter) {
+        this.expressionEngine = expressionEngine;
+        this.targetObjectFactory = targetObjectFactory;
+        this.geometryAdapter = geometryAdapter;
+    }
+
+    public RuleExecutionResult executeRules(
+            TransformPlan plan,
+            RuleDispatchIndex dispatchIndex,
+            StateStore stateStore,
+            SourceLookupIndex sourceLookupIndex,
+            ParentChildIndex parentChildIndex,
+            DiagnosticCollector diagnostics,
+            ExecutionMetrics metrics) {
+
+        Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket = new LinkedHashMap<>();
+        Map<String, Map<String, List<IomObject>>> expandedTargets = new LinkedHashMap<>();
+
+        Map<String, Map<String, TypeInfo>> sourceAttrTypes = buildSourceAttributeTypeMap(plan);
+
+        RuleDependencyGraph depGraph = new RuleDependencyGraph(plan.rules());
+        List<String> orderedRuleIds = depGraph.topologicalOrder();
+        Map<String, RulePlan> rulesById = new HashMap<>();
+        for (RulePlan rp : plan.rules()) {
+            rulesById.put(rp.ruleId(), rp);
+        }
+
+        List<List<String>> cycles = depGraph.cycles();
+        if (!cycles.isEmpty()) {
+            for (List<String> cycle : cycles) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.MAP_CYCLIC_DEPENDENCY, Severity.ERROR,
+                        "Cyclic rule dependency detected: " + cycle,
+                        null, "Break the cycle by restructuring refs or create directives"));
+            }
+        }
+
+        for (String ruleId : orderedRuleIds) {
+            RulePlan rule = rulesById.get(ruleId);
+            if (rule == null) continue;
+
+            if (!rule.joins().isEmpty()) {
+                processJoinedRule(rule, plan, dispatchIndex, stateStore, sourceLookupIndex, parentChildIndex,
+                        objectsByOutputAndBasket, sourceAttrTypes, diagnostics, metrics);
+            } else {
+                processSingleSourceRule(rule, plan, dispatchIndex, stateStore,
+                        objectsByOutputAndBasket, expandedTargets, sourceAttrTypes,
+                        diagnostics, metrics, parentChildIndex);
+            }
+
+            for (CreatePlan create : rule.creates()) {
+                processCreatePlan(create, rule, plan, stateStore,
+                        objectsByOutputAndBasket, sourceAttrTypes, diagnostics, metrics, parentChildIndex);
+            }
+        }
+
+        for (var entry : expandedTargets.entrySet()) {
+            String outputId = entry.getKey();
+            for (var basketEntry : entry.getValue().entrySet()) {
+                objectsByOutputAndBasket
+                        .computeIfAbsent(outputId, ignored -> new LinkedHashMap<>())
+                        .computeIfAbsent(basketEntry.getKey(), ignored -> new java.util.ArrayList<>())
+                        .addAll(basketEntry.getValue());
+            }
+        }
+
+        return new RuleExecutionResult(objectsByOutputAndBasket);
+    }
+
+    private void processSingleSourceRule(RulePlan rule, TransformPlan plan,
+                                          RuleDispatchIndex dispatchIndex, StateStore stateStore,
+                                          Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket,
+                                          Map<String, Map<String, List<IomObject>>> expandedTargets,
+                                          Map<String, Map<String, TypeInfo>> sourceAttrTypes,
+                                          DiagnosticCollector diagnostics, ExecutionMetrics metrics,
+                                          ParentChildIndex parentChildIndex) {
+        TargetObjectFactory.ObjectCreationContext ctx = new TargetObjectFactory.ObjectCreationContext(
+                objectsByOutputAndBasket, expandedTargets, diagnostics, stateStore,
+                null, parentChildIndex, metrics);
+
+        List<SourceRecord> records = stateStore.sourceRecords();
+        for (SourceRecord record : records) {
+            List<RulePlan> matchingRules = dispatchIndex.rulesFor(record.sourceFileId(), record.sourceClass());
+            for (RulePlan matchingRule : matchingRules) {
+                if (!matchingRule.ruleId().equals(rule.ruleId())) continue;
+
+                SourcePlan matchedSource = findSourcePlan(matchingRule, record);
+                if (matchedSource == null) continue;
+
+                Map<String, IomObject> sources = Map.of(matchedSource.alias(), record.sourceObject());
+                EvalContext evalCtx = new EvalContext(sources, diagnostics, rule.ruleId(), plan.enumMaps(),
+                        geometryAdapter, sourceAttrTypes);
+
+                if (!evaluateWhereAndPredicate(matchedSource, rule, evalCtx, expressionEngine, metrics)) continue;
+
+                metrics.recordRuleMatch(rule.ruleId());
+                int created = targetObjectFactory.createTarget(rule, matchedSource, record, evalCtx, plan, ctx);
+                metrics.recordTarget(TargetObjectFactory.getScopedName(rule.targetClass()));
+            }
+        }
+    }
+
+    private void processJoinedRule(RulePlan rule, TransformPlan plan,
+                                    RuleDispatchIndex dispatchIndex, StateStore stateStore,
+                                    SourceLookupIndex sourceLookupIndex,
+                                    ParentChildIndex parentChildIndex,
+                                    Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket,
+                                    Map<String, Map<String, TypeInfo>> sourceAttrTypes,
+                                    DiagnosticCollector diagnostics, ExecutionMetrics metrics) {
+        TargetObjectFactory.ObjectCreationContext ctx = new TargetObjectFactory.ObjectCreationContext(
+                objectsByOutputAndBasket, new LinkedHashMap<>(), diagnostics, stateStore,
+                null, parentChildIndex, metrics);
+
+        JoinPlan join = rule.joins().get(0);
+        SourcePlan leftPlan = join.left();
+        SourcePlan rightPlan = join.right();
+
+        FunctionCallExpr call = (FunctionCallExpr) join.condition().ast();
+        PathExpr leftPath = (PathExpr) call.arguments().get(0);
+        PathExpr rightPath = (PathExpr) call.arguments().get(1);
+        String leftAttr = leftPath.attributeName();
+        String rightAttr = rightPath.attributeName();
+
+        for (SourceRecord leftRecord : stateStore.sourceRecords()) {
+            if (!sourceMatchesPlan(leftRecord, leftPlan)) continue;
+
+            Map<String, IomObject> sources = new LinkedHashMap<>();
+            sources.put(leftPlan.alias(), leftRecord.sourceObject());
+
+            String leftAttrValue = leftRecord.sourceObject().getattrvalue(leftAttr);
+            if (leftAttrValue == null) {
+                if (join.type() == JoinType.INNER) {
+                    diagnostics.add(new Diagnostic(DiagnosticCode.RUN_JOIN_MISSING, Severity.WARNING,
+                            "Join key attribute '" + leftAttr + "' is null in left source. Rule: " + rule.ruleId(),
+                            rule.ruleId(), "Left join or provide non-null join keys"));
+                }
+                metrics.recordFiltered();
+                continue;
+            }
+
+            metrics.recordJoinLookup();
+            LookupKey lookupKey = new LookupKey(null,
+                    TargetObjectFactory.getScopedName(rightPlan.sourceClass()),
+                    rightAttr, new CanonicalValue("text", leftAttrValue, true));
+            List<SourceRecord> rightMatches = sourceLookupIndex.lookup(lookupKey);
+
+            rightMatches = rightMatches.stream()
+                    .filter(r -> rightPlan.inputIds().isEmpty() || rightPlan.inputIds().contains(r.sourceFileId()))
+                    .toList();
+
+            if (rightMatches.isEmpty()) {
+                if (join.type() == JoinType.INNER) {
+                    metrics.recordFiltered();
+                    diagnostics.add(new Diagnostic(DiagnosticCode.RUN_JOIN_MISSING, Severity.WARNING,
+                            "No matching right source record for join key " + leftAttr + " = " + leftAttrValue
+                                    + ". Rule: " + rule.ruleId(),
+                            rule.ruleId(), "Ensure matching records exist or use LEFT join"));
+                    continue;
+                }
+                EvalContext evalCtx = new EvalContext(sources, diagnostics, rule.ruleId(), plan.enumMaps(),
+                        geometryAdapter, sourceAttrTypes);
+                if (evaluateWhereAndPredicate(leftPlan, rule, evalCtx, expressionEngine, metrics)) {
+                    metrics.recordRuleMatch(rule.ruleId());
+                    targetObjectFactory.createTarget(rule, leftPlan, leftRecord, evalCtx, plan, ctx);
+                    metrics.recordTarget(TargetObjectFactory.getScopedName(rule.targetClass()));
+                }
+                continue;
+            }
+
+            if (rightMatches.size() > 1
+                    && (join.expectedCardinality() == JoinCardinality.ONE_TO_ONE
+                        || join.expectedCardinality() == JoinCardinality.MANY_TO_ONE)) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.RUN_JOIN_AMBIGUOUS, Severity.WARNING,
+                        "Expected " + join.expectedCardinality() + " but found " + rightMatches.size()
+                                + " matching right records for join key. Rule: " + rule.ruleId(),
+                        rule.ruleId(), "Use MANY_TO_MANY or ONE_TO_MANY cardinality"));
+            }
+
+            for (SourceRecord rightRecord : rightMatches) {
+                Map<String, IomObject> joinedSources = new LinkedHashMap<>();
+                joinedSources.put(leftPlan.alias(), leftRecord.sourceObject());
+                joinedSources.put(rightPlan.alias(), rightRecord.sourceObject());
+
+                EvalContext joinCtx = new EvalContext(joinedSources, diagnostics, rule.ruleId(), plan.enumMaps(),
+                        null, sourceAttrTypes);
+
+                Value joinResult = expressionEngine.evaluate(join.condition(), joinCtx);
+                if (!isFilterTruthy(joinResult)) {
+                    metrics.recordFiltered();
+                    continue;
+                }
+
+                if (!evaluateWhereAndPredicate(leftPlan, rule, joinCtx, expressionEngine, metrics)) continue;
+
+                metrics.recordRuleMatch(rule.ruleId());
+                targetObjectFactory.createTarget(rule, leftPlan, leftRecord, joinCtx, plan, ctx);
+                metrics.recordTarget(TargetObjectFactory.getScopedName(rule.targetClass()));
+            }
+        }
+    }
+
+    private void processCreatePlan(CreatePlan create, RulePlan parentRule, TransformPlan plan,
+                                    StateStore stateStore,
+                                    Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket,
+                                    Map<String, Map<String, TypeInfo>> sourceAttrTypes,
+                                    DiagnosticCollector diagnostics, ExecutionMetrics metrics,
+                                    ParentChildIndex parentChildIndex) {
+        TargetObjectFactory.ObjectCreationContext ctx = new TargetObjectFactory.ObjectCreationContext(
+                objectsByOutputAndBasket, new LinkedHashMap<>(), diagnostics, stateStore,
+                null, parentChildIndex, metrics);
+
+        for (SourceRecord record : stateStore.sourceRecords()) {
+            SourcePlan sp = findSourcePlan(parentRule, record);
+            if (sp == null) continue;
+
+            Map<String, IomObject> sources = Map.of(sp.alias(), record.sourceObject());
+            EvalContext evalCtx = new EvalContext(sources, diagnostics, parentRule.ruleId(), plan.enumMaps(),
+                    null, sourceAttrTypes);
+
+            targetObjectFactory.createTargetForCreatePlan(create, parentRule, record, evalCtx, plan, ctx);
+            metrics.recordTarget(TargetObjectFactory.getScopedName(create.targetClass()));
+        }
+    }
+
+    private static SourcePlan findSourcePlan(RulePlan rule, SourceRecord record) {
+        for (SourcePlan sp : rule.sources()) {
+            if (sp.sourceClass() == null) continue;
+            if (!sp.inputIds().contains(record.sourceFileId())) continue;
+            if (TypeSystemFacade.getScopedName(sp.sourceClass()).equals(record.sourceClass())) {
+                return sp;
+            }
+        }
+        return null;
+    }
+
+    private static boolean sourceMatchesPlan(SourceRecord record, SourcePlan plan) {
+        if (plan.sourceClass() == null) return false;
+        if (!plan.inputIds().isEmpty() && !plan.inputIds().contains(record.sourceFileId())) return false;
+        return TypeSystemFacade.getScopedName(plan.sourceClass()).equals(record.sourceClass());
+    }
+
+    private static boolean evaluateWhereAndPredicate(SourcePlan matchedSource, RulePlan rule,
+                                                      EvalContext evalCtx, ExpressionEngine engine,
+                                                      ExecutionMetrics metrics) {
+        if (matchedSource.where() != null && matchedSource.where().sourceText() != null
+                && !matchedSource.where().sourceText().isBlank()) {
+            Value whereResult = engine.evaluate(matchedSource.where(), evalCtx);
+            if (!isFilterTruthy(whereResult)) {
+                metrics.recordFiltered();
+                return false;
+            }
+        }
+        if (rule.predicate() != null && !rule.predicate().sourceText().isBlank()) {
+            Value predResult = engine.evaluate(rule.predicate(), evalCtx);
+            if (!isFilterTruthy(predResult)) {
+                metrics.recordFiltered();
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static boolean isFilterTruthy(Value value) {
+        if (value == null || value.isNull()) return false;
+        if (value instanceof BooleanValue bv) return bv.value();
+        if (value instanceof guru.interlis.transformer.expr.TextValue tv) return !tv.value().isEmpty();
+        if (value instanceof guru.interlis.transformer.expr.NumberValue nv)
+            return nv.value().compareTo(java.math.BigDecimal.ZERO) != 0;
+        return true;
+    }
+
+    private static Map<String, Map<String, TypeInfo>> buildSourceAttributeTypeMap(TransformPlan plan) {
+        Map<String, Map<String, TypeInfo>> result = new LinkedHashMap<>();
+        for (RulePlan rule : plan.rules()) {
+            for (SourcePlan sp : rule.sources()) {
+                if (sp.sourceClass() == null) continue;
+                String alias = sp.alias();
+                TypeSystemFacade sourceTs = null;
+                for (String inputId : sp.inputIds()) {
+                    InputBinding binding = plan.inputsById().get(inputId);
+                    if (binding != null && binding.typeSystem() != null) {
+                        sourceTs = binding.typeSystem();
+                        break;
+                    }
+                }
+                if (sourceTs == null) continue;
+
+                Map<String, TypeInfo> aliasTypes = new LinkedHashMap<>();
+                Iterator<ch.interlis.ili2c.metamodel.Extendable> it = sp.sourceClass().getAttributes();
+                while (it.hasNext()) {
+                    ch.interlis.ili2c.metamodel.Extendable ext = it.next();
+                    if (ext instanceof ch.interlis.ili2c.metamodel.AttributeDef attr) {
+                        TypeInfo ti = classifyAttributeType(attr);
+                        aliasTypes.put(attr.getName(), ti);
+                    }
+                }
+                result.put(alias, aliasTypes);
+            }
+        }
+        return result;
+    }
+
+    private static TypeInfo classifyAttributeType(ch.interlis.ili2c.metamodel.AttributeDef attr) {
+        ch.interlis.ili2c.metamodel.Type type = attr.getDomainResolvingAliases();
+        if (type == null) type = attr.getDomain();
+        if (type == null) return TypeInfo.UNKNOWN;
+        if (type instanceof ch.interlis.ili2c.metamodel.CoordType) return TypeInfo.COORD;
+        if (type instanceof ch.interlis.ili2c.metamodel.PolylineType) return TypeInfo.POLYLINE;
+        if (type instanceof ch.interlis.ili2c.metamodel.AreaType) return TypeInfo.AREA;
+        if (type instanceof ch.interlis.ili2c.metamodel.SurfaceOrAreaType) return TypeInfo.SURFACE;
+        if (type instanceof ch.interlis.ili2c.metamodel.SurfaceType) return TypeInfo.SURFACE;
+        if (type.isBoolean()) return TypeInfo.BOOLEAN;
+        if (type instanceof ch.interlis.ili2c.metamodel.NumericType
+                || type instanceof ch.interlis.ili2c.metamodel.NumericalType) return TypeInfo.NUMERIC;
+        if (type instanceof ch.interlis.ili2c.metamodel.EnumerationType) return TypeInfo.ENUM;
+        if (type instanceof ch.interlis.ili2c.metamodel.TextType) return TypeInfo.TEXT;
+        if (type instanceof ch.interlis.ili2c.metamodel.CompositionType) return TypeInfo.STRUCTURE;
+        if (type instanceof ch.interlis.ili2c.metamodel.ReferenceType) return TypeInfo.REFERENCE;
+        return TypeInfo.UNKNOWN;
+    }
+
+    public record RuleExecutionResult(
+            Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket
+    ) {}
+}

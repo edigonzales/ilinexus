@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import guru.interlis.transformer.diag.Diagnostic;
 import guru.interlis.transformer.diag.DiagnosticCollector;
+import guru.interlis.transformer.engine.ExecutionMetricsSnapshot;
 import guru.interlis.transformer.engine.TransformResult;
 import guru.interlis.transformer.mapping.plan.TransformPlan;
 import guru.interlis.transformer.validation.ValidationResult;
@@ -30,10 +31,11 @@ public final class TransformationReportWriter {
             DiagnosticCollector diagnostics,
             List<ValidationResult> validations,
             Duration elapsed,
-            Map<String, String> modelVersions) throws IOException {
+            Map<String, String> modelVersions,
+            ExecutionMetricsSnapshot metricsSnapshot) throws IOException {
         Files.createDirectories(outputPath.getParent());
         JSON_MAPPER.writeValue(outputPath.toFile(), buildReportMap(
-                plan, result, diagnostics, validations, elapsed, modelVersions));
+                plan, result, diagnostics, validations, elapsed, modelVersions, metricsSnapshot));
     }
 
     public void writeMarkdown(
@@ -43,10 +45,11 @@ public final class TransformationReportWriter {
             DiagnosticCollector diagnostics,
             List<ValidationResult> validations,
             Duration elapsed,
-            Map<String, String> modelVersions) throws IOException {
+            Map<String, String> modelVersions,
+            ExecutionMetricsSnapshot metricsSnapshot) throws IOException {
         Files.createDirectories(outputPath.getParent());
         Files.writeString(outputPath, buildMarkdown(
-                plan, result, diagnostics, validations, elapsed, modelVersions));
+                plan, result, diagnostics, validations, elapsed, modelVersions, metricsSnapshot));
     }
 
     // -- JSON ---------------------------------------------------------------
@@ -57,7 +60,8 @@ public final class TransformationReportWriter {
             DiagnosticCollector diagnostics,
             List<ValidationResult> validations,
             Duration elapsed,
-            Map<String, String> modelVersions) {
+            Map<String, String> modelVersions,
+            ExecutionMetricsSnapshot metricsSnapshot) {
 
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("name", plan.name());
@@ -77,6 +81,16 @@ public final class TransformationReportWriter {
         report.put("rules", plan.rules().size());
         report.put("inputs", plan.inputsById().size());
         report.put("outputs", plan.outputsById().size());
+
+        if (metricsSnapshot != null && metricsSnapshot.elapsedMillis() > 0) {
+            Map<String, Object> perf = new LinkedHashMap<>();
+            perf.put("elapsedMs", metricsSnapshot.elapsedMillis());
+            perf.put("joinLookups", metricsSnapshot.joinLookups());
+            perf.put("bagLookups", metricsSnapshot.bagLookups());
+            perf.put("ruleMatches", metricsSnapshot.ruleMatches());
+            perf.put("targetsByClass", metricsSnapshot.targetsByClass());
+            report.put("performance", perf);
+        }
 
         List<Map<String, Object>> diagMaps = new ArrayList<>();
         for (Diagnostic d : diagnostics.all()) {
@@ -120,7 +134,8 @@ public final class TransformationReportWriter {
             DiagnosticCollector diagnostics,
             List<ValidationResult> validations,
             Duration elapsed,
-            Map<String, String> modelVersions) {
+            Map<String, String> modelVersions,
+            ExecutionMetricsSnapshot metricsSnapshot) {
 
         StringBuilder sb = new StringBuilder();
         sb.append("# Transformation Report\n\n");
@@ -142,6 +157,23 @@ public final class TransformationReportWriter {
         sb.append("| Rules | ").append(plan.rules().size()).append(" |\n");
         sb.append("| Inputs | ").append(plan.inputsById().size()).append(" |\n");
         sb.append("| Outputs | ").append(plan.outputsById().size()).append(" |\n\n");
+
+        if (metricsSnapshot != null && metricsSnapshot.elapsedMillis() > 0) {
+            sb.append("## Performance\n\n");
+            sb.append("| Metric | Value |\n");
+            sb.append("|--------|-------|\n");
+            sb.append("| Elapsed (ms) | ").append(metricsSnapshot.elapsedMillis()).append(" |\n");
+            sb.append("| Join lookups | ").append(metricsSnapshot.joinLookups()).append(" |\n");
+            sb.append("| BAG lookups | ").append(metricsSnapshot.bagLookups()).append(" |\n");
+            sb.append("| Rule matches | ").append(metricsSnapshot.ruleMatches()).append(" |\n");
+            if (!metricsSnapshot.targetsByClass().isEmpty()) {
+                sb.append("| Targets by class | |\n");
+                for (var entry : metricsSnapshot.targetsByClass().entrySet()) {
+                    sb.append("|   ").append(escape(entry.getKey())).append(" | ").append(entry.getValue()).append(" |\n");
+                }
+            }
+            sb.append("\n");
+        }
 
         if (!diagnostics.all().isEmpty()) {
             sb.append("## Diagnostics\n\n");
