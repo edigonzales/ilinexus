@@ -24,6 +24,12 @@ public interface StateStore {
 
     Optional<IomObject> findTargetObject(String targetClass, String targetOid);
 
+    void registerTarget(TargetObjectKey key, IomObject object);
+
+    boolean targetExists(TargetObjectKey key);
+
+    Optional<IomObject> findTarget(TargetObjectKey key);
+
     void indexTargetObject(String targetClass, String targetOid, IomObject targetObject);
 
     /** @deprecated Use {@link #nextOid(OidStrategy, String, String, String, Map)} */

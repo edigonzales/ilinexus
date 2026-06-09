@@ -41,11 +41,17 @@ import guru.interlis.transformer.mapping.plan.TypeInfo;
 import guru.interlis.transformer.model.RoleResolver;
 import guru.interlis.transformer.model.TypeSystemFacade;
 import guru.interlis.transformer.state.BasketStrategy;
+import guru.interlis.transformer.state.CanonicalValue;
+import guru.interlis.transformer.state.DefaultOidGenerationService;
 import guru.interlis.transformer.state.DeferredRef;
+import guru.interlis.transformer.state.DuplicateTargetOidException;
+import guru.interlis.transformer.state.OidGenerationRequest;
+import guru.interlis.transformer.state.OidGenerationService;
 import guru.interlis.transformer.state.OidStrategy;
 import guru.interlis.transformer.state.SourceRecord;
 import guru.interlis.transformer.state.SourceRefKey;
 import guru.interlis.transformer.state.StateStore;
+import guru.interlis.transformer.state.TargetObjectKey;
 import guru.interlis.transformer.state.TargetRefValue;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -62,17 +68,25 @@ public final class TransformationEngine {
     private final StateStore stateStore;
     private final DiagnosticCollector diagnostics;
     private final GeometryAdapter geometryAdapter;
+    private final OidGenerationService oidGenerationService;
 
     public TransformationEngine(ExpressionEngine expressionEngine, StateStore stateStore, DiagnosticCollector diagnostics) {
-        this(expressionEngine, stateStore, diagnostics, new IoxGeometryAdapter());
+        this(expressionEngine, stateStore, diagnostics, new IoxGeometryAdapter(), new DefaultOidGenerationService());
     }
 
     public TransformationEngine(ExpressionEngine expressionEngine, StateStore stateStore,
                                  DiagnosticCollector diagnostics, GeometryAdapter geometryAdapter) {
+        this(expressionEngine, stateStore, diagnostics, geometryAdapter, new DefaultOidGenerationService());
+    }
+
+    public TransformationEngine(ExpressionEngine expressionEngine, StateStore stateStore,
+                                 DiagnosticCollector diagnostics, GeometryAdapter geometryAdapter,
+                                 OidGenerationService oidGenerationService) {
         this.expressionEngine = expressionEngine;
         this.stateStore = stateStore;
         this.diagnostics = diagnostics;
         this.geometryAdapter = geometryAdapter;
+        this.oidGenerationService = oidGenerationService;
     }
 
     // Counters for summary
@@ -235,14 +249,36 @@ public final class TransformationEngine {
                     }
                 }
 
-                Map<String, String> identityKeyValues = buildIdentityKeyValues(
+                Map<String, String> rawIdentityValues = buildIdentityKeyValues(
                         rule.identitySourceKeys(), record.sourceObject(), matchedSource.alias());
                 String sourceOid = record.sourceObject().getobjectoid();
-                String targetOid = stateStore.nextOid(
-                        plan.oidPlan().defaultStrategy(), plan.oidPlan().namespace(), rule.ruleId(),
-                        sourceOid, identityKeyValues);
-                if (targetOid == null) {
-                    targetOid = Long.toString(oldNextOid());
+
+                LinkedHashMap<String, CanonicalValue> identityValues = toCanonicalValues(rawIdentityValues);
+                String targetOidType = resolveTargetOidType(plan, rule);
+
+                OidGenerationRequest oidRequest = new OidGenerationRequest(
+                        plan.oidPlan().defaultStrategy(),
+                        plan.oidPlan().namespace(),
+                        rule.ruleId(),
+                        record.sourceFileId(),
+                        record.sourceBasketId(),
+                        record.sourceClass(),
+                        sourceOid,
+                        identityValues,
+                        targetOidType
+                );
+
+                String targetOid;
+                try {
+                    targetOid = oidGenerationService.generate(oidRequest);
+                } catch (UnsupportedOperationException e) {
+                    diagnostics.add(new Diagnostic(DiagnosticCode.MAP_EXTERNAL_STRATEGY_UNSUPPORTED, Severity.ERROR,
+                            e.getMessage(), rule.ruleId(),
+                            "Use one of: preserve, integer, uuid, deterministicUuid"));
+                    targetOid = oidGenerationService.generate(new OidGenerationRequest(
+                            OidStrategy.INTEGER, plan.oidPlan().namespace(), rule.ruleId(),
+                            record.sourceFileId(), record.sourceBasketId(), record.sourceClass(),
+                            sourceOid, identityValues, targetOidType));
                 }
 
                 Iom_jObject target = new Iom_jObject(
@@ -306,7 +342,14 @@ public final class TransformationEngine {
                         new TargetRefValue(getScopedName(rule.targetClass()), target.getobjectoid(),
                                 rule.outputId(), record.sourceBasketId())
                 );
-                stateStore.indexTargetObject(getScopedName(rule.targetClass()), target.getobjectoid(), target);
+                try {
+                    stateStore.registerTarget(
+                            new TargetObjectKey(rule.outputId(), getScopedName(rule.targetClass()), target.getobjectoid()),
+                            target);
+                } catch (DuplicateTargetOidException e) {
+                    diagnostics.add(new Diagnostic(DiagnosticCode.RUN_DUPLICATE_TARGET_OID, Severity.ERROR,
+                            e.getMessage(), rule.ruleId(), "This indicates a bug in OID generation"));
+                }
 
                 String targetTopic = extractTopic(getScopedName(rule.targetClass()));
                 String targetBasketId = BasketRouter.determineTargetBasket(
@@ -635,12 +678,20 @@ public final class TransformationEngine {
             IomObject structure = parentObj.getattrobj(bagAttrName, i);
             if (structure == null) continue;
 
-            String targetOid = stateStore.nextOid(
-                    plan.oidPlan().defaultStrategy(), plan.oidPlan().namespace(), rule.ruleId(),
-                    parentObj.getobjectoid() + "-" + i,
-                    Map.of());
-            if (targetOid == null) {
-                targetOid = Long.toString(oldNextOid());
+            String targetOid;
+            try {
+                targetOid = oidGenerationService.generate(new OidGenerationRequest(
+                        plan.oidPlan().defaultStrategy(), plan.oidPlan().namespace(), rule.ruleId(),
+                        parentRecord.sourceFileId(), parentRecord.sourceBasketId(),
+                        bag.structureName(),
+                        parentObj.getobjectoid() + "-" + i, new LinkedHashMap<>(),
+                        null));
+            } catch (UnsupportedOperationException e) {
+                targetOid = oidGenerationService.generate(new OidGenerationRequest(
+                        OidStrategy.INTEGER, plan.oidPlan().namespace(), rule.ruleId(),
+                        parentRecord.sourceFileId(), parentRecord.sourceBasketId(),
+                        bag.structureName(), parentObj.getobjectoid() + "-" + i,
+                        new LinkedHashMap<>(), null));
             }
 
             Iom_jObject bagTarget = new Iom_jObject(bag.structureName(), targetOid);
@@ -659,7 +710,14 @@ public final class TransformationEngine {
                 }
             }
 
-            stateStore.indexTargetObject(bag.structureName(), bagTarget.getobjectoid(), bagTarget);
+            try {
+                stateStore.registerTarget(
+                        new TargetObjectKey(rule.outputId(), bag.structureName(), bagTarget.getobjectoid()),
+                        bagTarget);
+            } catch (DuplicateTargetOidException e) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.RUN_DUPLICATE_TARGET_OID, Severity.ERROR,
+                        e.getMessage(), rule.ruleId(), "This indicates a bug in OID generation"));
+            }
 
             String targetTopic = extractTopic(bag.structureName());
             String targetBasketId = BasketRouter.determineTargetBasket(
@@ -887,7 +945,7 @@ public final class TransformationEngine {
     }
 
     private static Map<String, String> buildIdentityKeyValues(List<String> identitySourceKeys,
-                                                               IomObject sourceObject, String alias) {
+                                                                IomObject sourceObject, String alias) {
         if (identitySourceKeys == null || identitySourceKeys.isEmpty()) {
             return Map.of();
         }
@@ -904,6 +962,24 @@ public final class TransformationEngine {
             result.put(key, val != null ? val : "");
         }
         return result;
+    }
+
+    private static LinkedHashMap<String, CanonicalValue> toCanonicalValues(Map<String, String> rawValues) {
+        LinkedHashMap<String, CanonicalValue> result = new LinkedHashMap<>();
+        if (rawValues == null) return result;
+        for (var entry : rawValues.entrySet()) {
+            String value = entry.getValue();
+            boolean defined = value != null && !value.isEmpty();
+            result.put(entry.getKey(), new CanonicalValue("text", defined ? value : "", defined));
+        }
+        return result;
+    }
+
+    private String resolveTargetOidType(TransformPlan plan, RulePlan rule) {
+        if (plan == null || rule == null) return null;
+        OutputBinding binding = plan.outputsById().get(rule.outputId());
+        if (binding == null || binding.typeSystem() == null) return null;
+        return binding.typeSystem().getOidType(getScopedName(rule.targetClass()));
     }
 
     private long oldNextOid() {

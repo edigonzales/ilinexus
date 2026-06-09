@@ -68,12 +68,37 @@ public final class InMemoryStateStore implements StateStore {
 
     @Override
     public Optional<IomObject> findTargetObject(String targetClass, String targetOid) {
-        return Optional.ofNullable(targetIndex.get(targetClass + "::" + targetOid));
+        return findTarget(new TargetObjectKey(null, targetClass, targetOid));
     }
 
     @Override
     public void indexTargetObject(String targetClass, String targetOid, IomObject targetObject) {
-        targetIndex.put(targetClass + "::" + targetOid, targetObject);
+        registerTarget(new TargetObjectKey(null, targetClass, targetOid), targetObject);
+    }
+
+    @Override
+    public void registerTarget(TargetObjectKey key, IomObject object) {
+        if (targetExists(key)) {
+            throw new DuplicateTargetOidException(
+                    "Duplicate target OID: targetClass=" + key.targetClass()
+                            + ", targetOid=" + key.targetOid()
+                            + (key.outputId() != null ? ", outputId=" + key.outputId() : ""));
+        }
+        targetIndex.put(targetKey(key), object);
+    }
+
+    @Override
+    public boolean targetExists(TargetObjectKey key) {
+        return targetIndex.containsKey(targetKey(key));
+    }
+
+    @Override
+    public Optional<IomObject> findTarget(TargetObjectKey key) {
+        return Optional.ofNullable(targetIndex.get(targetKey(key)));
+    }
+
+    private static String targetKey(TargetObjectKey key) {
+        return key.targetClass() + "::" + key.targetOid();
     }
 
     @Override

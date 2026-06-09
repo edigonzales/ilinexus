@@ -111,23 +111,14 @@ public final class MappingCompiler {
             oidNamespace = config.mapping.oidStrategy.namespace;
         }
 
-        // Validate OID strategy against target model OID types
-        if (oidStrategy == OidStrategy.INTEGER) {
-            for (RulePlan rp : rulePlans) {
-                String targetPath = getScopedName(rp.targetClass());
-                String outputId = rp.outputId();
-                if (outputId != null && !outputId.isEmpty()) {
-                    TypeSystemFacade ts = modelRegistry.requireTargetTypeSystem(outputId);
-                    String oidType = ts.getOidType(targetPath);
-                    if (oidType != null && (oidType.contains("UUID") || oidType.contains("AnyOID"))) {
-                        diagnostics.add(new Diagnostic(DiagnosticCode.MAP_OID_TYPE_MISMATCH, Severity.ERROR,
-                                "OID strategy 'integer' is incompatible with target OID type '"
-                                        + oidType + "' for class " + targetPath,
-                                rp.ruleId(), "Use 'uuid' or 'deterministicUuid' for UUIDOID targets"));
-                    }
-                }
-            }
+        if (oidStrategy == OidStrategy.EXTERNAL) {
+            diagnostics.add(new Diagnostic(DiagnosticCode.MAP_EXTERNAL_STRATEGY_UNSUPPORTED, Severity.ERROR,
+                    "EXTERNAL OID strategy is not yet implemented",
+                    null, "Use one of: preserve, integer, uuid, deterministicUuid"));
+            oidStrategy = OidStrategy.INTEGER;
         }
+
+        validateOidTypeCompatibility(oidStrategy, rulePlans, modelRegistry, diagnostics);
 
         // Compile basket strategy
         BasketStrategy basketStrategy = BasketStrategy.PRESERVE;
@@ -409,26 +400,220 @@ public final class MappingCompiler {
             return List.of();
         }
         List<String> keys = new ArrayList<>();
+        Set<String> seenKeys = new HashSet<>();
         for (String key : rule.identity.sourceKey) {
-            if (key == null || key.isBlank()) continue;
+            if (key == null || key.isBlank()) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_MISSING, Severity.ERROR,
+                        "Identity key is null or empty in rule " + rule.id,
+                        rule.id, "Remove empty key or provide a valid attribute reference"));
+                continue;
+            }
             String trimmed = key.trim();
-            // Strip optional alias prefix
-            if (trimmed.contains(".")) {
-                String[] parts = trimmed.split("\\.", 2);
-                if (parts.length == 2) {
-                    String alias = parts[0];
-                    String attrName = parts[1];
-                    SourcePlan matchingSource = sourcePlans.stream()
-                            .filter(sp -> sp.alias() != null && sp.alias().equals(alias))
-                            .findFirst().orElse(null);
-                    if (matchingSource != null && matchingSource.sourceClass() != null) {
-                        // Validate attribute exists on source class
+
+            if (!seenKeys.add(trimmed)) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_DUPLICATE, Severity.ERROR,
+                        "Duplicate identity key: " + trimmed + " in rule " + rule.id,
+                        rule.id, "Remove duplicate identity key"));
+                continue;
+            }
+
+            if (!trimmed.contains(".")) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_MISSING, Severity.ERROR,
+                        "Identity key must be qualified with alias: " + trimmed,
+                        rule.id, "Use format: <alias>.<attributeName>"));
+                continue;
+            }
+
+            String[] parts = trimmed.split("\\.", 2);
+            if (parts.length != 2) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_MISSING, Severity.ERROR,
+                        "Invalid identity key format: " + trimmed,
+                        rule.id, "Use format: <alias>.<attributeName>"));
+                continue;
+            }
+
+            String alias = parts[0];
+            String attrName = parts[1];
+
+            SourcePlan matchingSource = sourcePlans.stream()
+                    .filter(sp -> sp.alias() != null && sp.alias().equals(alias))
+                    .findFirst().orElse(null);
+
+            if (matchingSource == null) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_MISSING, Severity.ERROR,
+                        "Identity key alias not found: " + alias + " in rule " + rule.id,
+                        rule.id, "Verify the alias matches a source definition"));
+                continue;
+            }
+
+            if (matchingSource.sourceClass() == null) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_MISSING, Severity.ERROR,
+                        "Source class not resolved for alias: " + alias,
+                        rule.id, "Verify the source class is valid"));
+                continue;
+            }
+
+            AttributeDef attr = null;
+            var attrIt = matchingSource.sourceClass().getAttributes();
+            while (attrIt.hasNext()) {
+                ch.interlis.ili2c.metamodel.Extendable ext = attrIt.next();
+                if (ext instanceof AttributeDef ad) {
+                    if (ad.getName() != null && ad.getName().equals(attrName)) {
+                        attr = ad;
+                        break;
                     }
                 }
             }
+
+            if (attr == null) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_MISSING, Severity.ERROR,
+                        "Identity key attribute not found: " + attrName
+                                + " on source " + alias + " in rule " + rule.id,
+                        rule.id, "Verify the attribute name exists on the source class"));
+                continue;
+            }
+
+            if (!isValidIdentityKeyType(attr)) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_INVALID_TYPE, Severity.ERROR,
+                        "Identity key attribute is not a usable scalar type: "
+                                + alias + "." + attrName + " in rule " + rule.id,
+                        rule.id, "Identity keys must be scalar text, numeric, enum, boolean, or date attributes. "
+                                + "Geometry, BAG/STRUCTURE, and reference types are not allowed."));
+                continue;
+            }
+
             keys.add(trimmed);
         }
         return keys;
+    }
+
+    private static boolean isValidIdentityKeyType(AttributeDef attr) {
+        ch.interlis.ili2c.metamodel.Type type = attr.getDomainResolvingAliases();
+        if (type == null) type = attr.getDomain();
+        if (type == null) return false;
+
+        if (type instanceof ch.interlis.ili2c.metamodel.CoordType
+                || type instanceof ch.interlis.ili2c.metamodel.PolylineType
+                || type instanceof ch.interlis.ili2c.metamodel.AreaType
+                || type instanceof ch.interlis.ili2c.metamodel.SurfaceOrAreaType
+                || type instanceof ch.interlis.ili2c.metamodel.SurfaceType
+                || type instanceof ch.interlis.ili2c.metamodel.ReferenceType) {
+            return false;
+        }
+
+        if (type instanceof CompositionType ct) {
+            Table component = ct.getComponentType();
+            if (component == null) return false;
+            var innerIt = component.getAttributes();
+            while (innerIt.hasNext()) {
+                ch.interlis.ili2c.metamodel.Extendable ext = innerIt.next();
+                if (ext instanceof AttributeDef) return false;
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    private void validateIdentityKeysStructurally(JobConfig.RuleSpec rule, DiagnosticCollector diag) {
+        if (rule.identity == null || rule.identity.sourceKey == null || rule.identity.sourceKey.isEmpty()) {
+            return;
+        }
+        Set<String> seenKeys = new HashSet<>();
+        Set<String> aliases = new HashSet<>();
+        for (JobConfig.SourceSpec src : rule.sources) {
+            if (src.alias != null && !src.alias.isBlank()) {
+                aliases.add(src.alias);
+            }
+        }
+        for (String key : rule.identity.sourceKey) {
+            if (key == null || key.isBlank()) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_MISSING, Severity.ERROR,
+                        "Identity key is null or empty in rule " + rule.id,
+                        rule.id, "Remove empty key or provide a valid attribute reference"));
+                continue;
+            }
+            String trimmed = key.trim();
+
+            if (!seenKeys.add(trimmed)) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_DUPLICATE, Severity.ERROR,
+                        "Duplicate identity key: " + trimmed + " in rule " + rule.id,
+                        rule.id, "Remove duplicate identity key"));
+            }
+
+            if (!trimmed.contains(".")) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_MISSING, Severity.ERROR,
+                        "Identity key must be qualified with alias: " + trimmed,
+                        rule.id, "Use format: <alias>.<attributeName>"));
+                continue;
+            }
+
+            String[] parts = trimmed.split("\\.", 2);
+            String alias = parts[0];
+            if (!aliases.isEmpty() && !aliases.contains(alias)) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_IDENTITY_KEY_MISSING, Severity.ERROR,
+                        "Identity key alias not found: " + alias + " in rule " + rule.id,
+                        rule.id, "Available aliases: " + aliases));
+            }
+        }
+    }
+
+    private static void validateOidTypeCompatibility(OidStrategy oidStrategy, List<RulePlan> rulePlans,
+                                                      ModelRegistry modelRegistry,
+                                                      DiagnosticCollector diagnostics) {
+        for (RulePlan rp : rulePlans) {
+            String targetPath = getScopedName(rp.targetClass());
+            String outputId = rp.outputId();
+            if (outputId == null || outputId.isEmpty()) continue;
+
+            TypeSystemFacade ts;
+            try {
+                ts = modelRegistry.requireTargetTypeSystem(outputId);
+            } catch (IllegalArgumentException e) {
+                continue;
+            }
+            if (ts == null) continue;
+
+            String oidType = ts.getOidType(targetPath);
+            if (oidType == null) continue;
+
+            String oidTypeLower = oidType.toLowerCase();
+
+            switch (oidStrategy) {
+                case INTEGER -> {
+                    if (oidTypeLower.contains("uuid") || oidTypeLower.contains("anyoid")) {
+                        diagnostics.add(new Diagnostic(DiagnosticCode.MAP_OID_STRATEGY_INCOMPATIBLE, Severity.ERROR,
+                                "OID strategy 'integer' is incompatible with target OID type '"
+                                        + oidType + "' for class " + targetPath,
+                                rp.ruleId(), "Use 'uuid' or 'deterministicUuid' for UUIDOID targets"));
+                    }
+                    if (oidTypeLower.contains("text")) {
+                        diagnostics.add(new Diagnostic(DiagnosticCode.MAP_OID_STRATEGY_INCOMPATIBLE, Severity.ERROR,
+                                "OID strategy 'integer' is incompatible with target OID type '"
+                                        + oidType + "' for class " + targetPath,
+                                rp.ruleId(), "Use 'preserve' for TextOID targets"));
+                    }
+                }
+                case UUID, DETERMINISTIC_UUID -> {
+                    if (oidTypeLower.contains("numeric")) {
+                        diagnostics.add(new Diagnostic(DiagnosticCode.MAP_OID_STRATEGY_INCOMPATIBLE, Severity.ERROR,
+                                "OID strategy '" + oidStrategy.name().toLowerCase()
+                                        + "' is incompatible with target OID type '" + oidType + "' for class "
+                                        + targetPath,
+                                rp.ruleId(), "Use 'integer' for NumericOID targets"));
+                    }
+                }
+                case PRESERVE -> {
+                    if (oidTypeLower.contains("uuid") || oidTypeLower.contains("anyoid")) {
+                        diagnostics.add(new Diagnostic(DiagnosticCode.MAP_OID_STRATEGY_INCOMPATIBLE, Severity.WARNING,
+                                "OID strategy 'preserve' copies source OID, which may not be a UUID for target OID type '"
+                                        + oidType + "' for class " + targetPath,
+                                rp.ruleId(), "Use 'uuid' or 'deterministicUuid' for UUIDOID targets"));
+                    }
+                }
+                default -> {}
+            }
+        }
     }
 
     // -- Bag compilation (Phase 12) ----------------------------------------
@@ -929,6 +1114,7 @@ public final class MappingCompiler {
             validateRuleId(rule, ruleIds, diag);
             validateRuleTarget(rule, outputIds, diag);
             validateRuleSources(rule, inputIds, outputIds, diag);
+            validateIdentityKeysStructurally(rule, diag);
         }
     }
 

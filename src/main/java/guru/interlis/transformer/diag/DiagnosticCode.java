@@ -33,6 +33,10 @@ public final class DiagnosticCode {
     public static final String MAP_UNKNOWN_BASKET_STRATEGY = "ILITRF-MAP-UNKNOWN-BASKET-STRATEGY";
     public static final String MAP_OID_TYPE_MISMATCH = "ILITRF-MAP-OID-TYPE-MISMATCH";
     public static final String MAP_IDENTITY_KEY_MISSING = "ILITRF-MAP-IDENTITY-KEY-MISSING";
+    public static final String MAP_IDENTITY_KEY_INVALID_TYPE = "ILITRF-MAP-IDENTITY-KEY-INVALID-TYPE";
+    public static final String MAP_IDENTITY_KEY_DUPLICATE = "ILITRF-MAP-IDENTITY-KEY-DUPLICATE";
+    public static final String MAP_EXTERNAL_STRATEGY_UNSUPPORTED = "ILITRF-MAP-EXTERNAL-STRATEGY-UNSUPPORTED";
+    public static final String MAP_OID_STRATEGY_INCOMPATIBLE = "ILITRF-MAP-OID-STRATEGY-INCOMPATIBLE";
 
     // Model
     public static final String MODEL_COMPILE_FAILED = "ILITRF-MODEL-COMPILE-FAILED";
@@ -43,6 +47,8 @@ public final class DiagnosticCode {
     public static final String RUN_REF_TYPE_MISMATCH = "ILITRF-RUN-REF-TYPE-MISMATCH";
     public static final String RUN_REF_MISSING_MANDATORY = "ILITRF-RUN-REF-MISSING-MANDATORY";
     public static final String RUN_REF_CARDINALITY = "ILITRF-RUN-REF-CARDINALITY";
+    public static final String RUN_MISSING_SOURCE_OID = "ILITRF-RUN-MISSING-SOURCE-OID";
+    public static final String RUN_DUPLICATE_TARGET_OID = "ILITRF-RUN-DUPLICATE-TARGET-OID";
 
     // Expression (Phase 4)
     public static final String EXPR_SYNTAX = "ILITRF-EXPR-SYNTAX";
