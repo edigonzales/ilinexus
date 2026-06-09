@@ -972,48 +972,77 @@ public final class MappingCompiler {
             String bagAttrName = entry.getKey();
             JobConfig.BagSpec bagSpec = entry.getValue();
 
-            // Validate bag attribute exists on target class
-            AttributeDef bagAttr = targetTs != null ? targetTs.findAttribute(targetClass, bagAttrName) : null;
-            if (bagAttr == null) {
-                diag.add(new Diagnostic(DiagnosticCode.MAP_UNKNOWN_TARGET_ATTRIBUTE, Severity.ERROR,
-                        "Bag target attribute not found: " + bagAttrName + " in class " + targetClass.getName(),
-                        ruleId, "Check the bag attribute name in the target class"));
-                continue;
-            }
+            // Determine bag lookup mode
+            BagPlan.BagMode mode = "expand".equalsIgnoreCase(bagSpec.mode)
+                    ? BagPlan.BagMode.EXPAND : BagPlan.BagMode.EMBED;
 
-            // Check if it's a BAG OF structure type
-            ch.interlis.ili2c.metamodel.Type domain = bagAttr.getDomain();
-            if (!(domain instanceof CompositionType compositionType)) {
-                diag.add(new Diagnostic(DiagnosticCode.MAP_TYPE_MISMATCH, Severity.ERROR,
-                        "Bag attribute " + bagAttrName + " is not a structure type",
-                        ruleId, "Bag attributes must be BAG OF structures"));
-                continue;
-            }
+            Table componentTable;
+            String effectiveStructureName;
 
-            Table componentTable = compositionType.getComponentType();
-            if (componentTable == null) {
-                diag.add(new Diagnostic(DiagnosticCode.MAP_TYPE_MISMATCH, Severity.ERROR,
-                        "Bag attribute " + bagAttrName + " has no component type",
-                        ruleId, "Structure type must have a component"));
-                continue;
-            }
-
-            // Validate the structure name from YAML against the component type
-            String structureName = bagSpec.structure;
-            if (structureName != null && !structureName.isBlank()) {
-                String componentName = getScopedName(componentTable);
-                if (!componentTable.getName().equals(structureName)
-                        && !componentName.equals(structureName)
-                        && !componentName.endsWith("." + structureName)) {
-                    diag.add(new Diagnostic(DiagnosticCode.MAP_TYPE_MISMATCH, Severity.WARNING,
-                            "Structure name mismatch: YAML specifies '" + structureName
-                                    + "' but target attribute uses '" + componentName + "'",
-                            ruleId, "The structure is determined by the target model"));
+            if (mode == BagPlan.BagMode.EXPAND) {
+                // EXPAND: bag is on the source (e.g., LFP3.Textposition BAG on DMAV LFP3)
+                // structure is the target table name from mapping (e.g., Child)
+                String structClass = bagSpec.structure;
+                if (structClass == null || structClass.isBlank()) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_MISSING_TARGET_CLASS, Severity.ERROR,
+                            "EXPAND bag requires structure to specify the target class",
+                            ruleId, "Specify the target class in bags.<name>.structure"));
+                    continue;
                 }
-            }
+                String structTsOutput = rule.getEffectiveTargetOutput();
+                TypeSystemFacade structTs = structTsOutput != null && !structTsOutput.isEmpty()
+                        ? modelRegistry.requireTargetTypeSystem(structTsOutput) : null;
+                componentTable = structTs != null ? structTs.resolveClass(structClass) : null;
+                if (componentTable == null) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_UNKNOWN_TARGET_CLASS, Severity.ERROR,
+                            "EXPAND target class not found for structure: " + structClass,
+                            ruleId, "Check the target class in bags.<name>.structure"));
+                    continue;
+                }
+                effectiveStructureName = getScopedName(componentTable);
+            } else {
+                // EMBED: validate bag attribute exists on target class
+                AttributeDef bagAttr = targetTs != null ? targetTs.findAttribute(targetClass, bagAttrName) : null;
+                if (bagAttr == null) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_UNKNOWN_TARGET_ATTRIBUTE, Severity.ERROR,
+                            "Bag target attribute not found: " + bagAttrName + " in class " + targetClass.getName(),
+                            ruleId, "Check the bag attribute name in the target class"));
+                    continue;
+                }
 
-            // Use the component type name for the structure
-            String effectiveStructureName = getScopedName(componentTable);
+                // Check if it's a BAG OF structure type
+                ch.interlis.ili2c.metamodel.Type domain = bagAttr.getDomain();
+                if (!(domain instanceof CompositionType compositionType)) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_TYPE_MISMATCH, Severity.ERROR,
+                            "Bag attribute " + bagAttrName + " is not a structure type",
+                            ruleId, "Bag attributes must be BAG OF structures"));
+                    continue;
+                }
+
+                componentTable = compositionType.getComponentType();
+                if (componentTable == null) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_TYPE_MISMATCH, Severity.ERROR,
+                            "Bag attribute " + bagAttrName + " has no component type",
+                            ruleId, "Structure type must have a component"));
+                    continue;
+                }
+
+                // Validate the structure name from YAML against the component type
+                String structureName = bagSpec.structure;
+                if (structureName != null && !structureName.isBlank()) {
+                    String componentName = getScopedName(componentTable);
+                    if (!componentTable.getName().equals(structureName)
+                            && !componentName.equals(structureName)
+                            && !componentName.endsWith("." + structureName)) {
+                        diag.add(new Diagnostic(DiagnosticCode.MAP_TYPE_MISMATCH, Severity.WARNING,
+                                "Structure name mismatch: YAML specifies '" + structureName
+                                        + "' but target attribute uses '" + componentName + "'",
+                                ruleId, "The structure is determined by the target model"));
+                    }
+                }
+
+                effectiveStructureName = getScopedName(componentTable);
+            }
 
             // Compile the from source
             JobConfig.BagFrom from = bagSpec.from;
@@ -1049,16 +1078,22 @@ public final class MappingCompiler {
                 continue;
             }
 
+            // Pre-create source plan for alias resolution in where expression
+            SourcePlan bagSourcePlan = new SourcePlan(from.alias, bagSourceClass,
+                    List.of(from.input), null);
+
             // Compile the bag where filter
             CompiledExpression bagWhere = null;
             if (from.where != null && !from.where.isBlank()) {
                 Map<String, SourcePlan> bagSourcesByAlias = new HashMap<>(sourcesByAlias);
+                bagSourcesByAlias.put(from.alias, bagSourcePlan);
                 ExpressionCompileContext whereCtx = new ExpressionCompileContext(ruleId,
                         bagSourcesByAlias, TypeInfo.BOOLEAN, functionRegistry, enumMaps);
                 bagWhere = expressionCompiler.compile(from.where, whereCtx, diag);
             }
 
-            SourcePlan bagSourcePlan = new SourcePlan(from.alias, bagSourceClass,
+            // Update source plan with compiled where expression
+            bagSourcePlan = new SourcePlan(from.alias, bagSourceClass,
                     List.of(from.input), bagWhere);
 
             // Compile bag assignments against structure attributes
@@ -1105,11 +1140,83 @@ public final class MappingCompiler {
             // Check mandatory coverage for structure attributes
             checkStructureMandatoryCoverage(componentTable, bagAssignments, bagAttrName, ruleId, diag);
 
-            BagPlan.BagMode mode = "expand".equalsIgnoreCase(bagSpec.mode)
-                    ? BagPlan.BagMode.EXPAND : BagPlan.BagMode.EMBED;
+            // Extract parent ref attribute and alias
+            String parentRefAttribute = null;
+            String parentAlias = null;
+            if (bagSpec.parentRef != null) {
+                if (bagSpec.parentRef.attribute != null && !bagSpec.parentRef.attribute.isBlank()) {
+                    parentRefAttribute = bagSpec.parentRef.attribute;
+                }
+                if (bagSpec.parentRef.parentAlias != null && !bagSpec.parentRef.parentAlias.isBlank()) {
+                    parentAlias = bagSpec.parentRef.parentAlias;
+                }
+            }
+            // Fallback: extract from refEquals() where clause
+            if (parentRefAttribute == null && bagWhere != null
+                    && bagWhere.ast() instanceof FunctionCallExpr fce
+                    && "refEquals".equals(fce.functionName())
+                    && fce.arguments().size() == 2
+                    && fce.arguments().get(0) instanceof PathExpr first
+                    && fce.arguments().get(1) instanceof PathExpr second) {
+                parentRefAttribute = first.attributeName();
+                if (parentAlias == null) {
+                    parentAlias = second.alias();
+                }
+            }
+            // Fallback for parentAlias: use first source alias
+            if (parentAlias == null && !sourcePlans.isEmpty()) {
+                parentAlias = sourcePlans.get(0).alias();
+            }
+            if (parentRefAttribute == null && parentAlias == null) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_BAG_PARENT_REF_MISSING, Severity.WARNING,
+                        "Bag '" + bagAttrName + "' has no parent reference attribute. "
+                                + "This may cause O(n²) full scans at runtime.",
+                        ruleId, "Set bags.<name>.parentRef.attribute for indexed lookup"));
+            }
+
+            // Extract cardinality from composition type (EMBED only)
+            Integer cardinalityMin = null;
+            Integer cardinalityMax = null;
+            if (mode == BagPlan.BagMode.EMBED
+                    && targetTs != null
+                    && targetTs.findAttribute(targetClass, bagAttrName) != null) {
+                var bagAttr2 = targetTs.findAttribute(targetClass, bagAttrName);
+                if (bagAttr2 != null && bagAttr2.getDomain() instanceof CompositionType ct
+                        && ct.getCardinality() instanceof Cardinality card) {
+                    cardinalityMin = card.getMinimum() >= 0 ? Math.toIntExact(card.getMinimum()) : 0;
+                    cardinalityMax = card.getMaximum() < Long.MAX_VALUE
+                            ? Math.toIntExact(card.getMaximum()) : null;
+                }
+            }
+
+            // Identity plan for EXPAND mode
+            IdentityPlan bagIdentityPlan = null;
+            if (mode == BagPlan.BagMode.EXPAND) {
+                OidStrategy expandOidStrategy = OidStrategy.INTEGER;
+                String expandNamespace = null;
+                List<String> bagIdentitySourceKeys = compileIdentityKeys(rule, sourcePlans, diag);
+                if (bagIdentitySourceKeys.isEmpty()) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_BAG_EXPAND_IDENTITY_MISSING, Severity.WARNING,
+                            "EXPAND bag '" + bagAttrName + "' has no identity source keys; "
+                                    + "OIDs will be generated from parent + index.",
+                            ruleId, "Consider setting identity keys via rule identity.sourceKey"));
+                }
+                bagIdentityPlan = new IdentityPlan(expandOidStrategy, expandNamespace, bagIdentitySourceKeys);
+            }
+
+            // Parent ref plan for EXPAND mode (back-reference)
+            RefPlan parentRefPlan = null;
+            if (mode == BagPlan.BagMode.EXPAND && bagSpec.parentRef != null
+                    && bagSpec.parentRef.association != null && !bagSpec.parentRef.association.isBlank()
+                    && bagSpec.parentRef.role != null && !bagSpec.parentRef.role.isBlank()) {
+                parentRefPlan = new RefPlan(bagSpec.parentRef.role, bagSpec.parentRef.association,
+                        bagSpec.parentRef.parentAlias != null ? bagSpec.parentRef.parentAlias : parentAlias,
+                        ruleId, true);
+            }
 
             BagPlan bp = new BagPlan(bagAttrName, bagSourcePlan, effectiveStructureName,
-                    bagAssignments, bagWhere, mode);
+                    bagAssignments, bagWhere, mode, parentRefAttribute, parentAlias,
+                    cardinalityMin, cardinalityMax, bagIdentityPlan, parentRefPlan);
             bagPlans.add(bp);
         }
         return bagPlans;

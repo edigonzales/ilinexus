@@ -254,6 +254,15 @@ public final class JobConfig {
         public String structure;
         public Map<String, String> assign;
         public String mode;
+        @JsonProperty("parentRef")
+        public BagParentRef parentRef;
+    }
+
+    public static final class BagParentRef {
+        public String attribute;
+        public String parentAlias;
+        public String association;
+        public String role;
     }
 
     public static final class BagFrom {

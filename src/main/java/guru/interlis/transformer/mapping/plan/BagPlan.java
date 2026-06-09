@@ -8,10 +8,33 @@ public record BagPlan(
         String structureName,
         List<AssignmentPlan> assignments,
         CompiledExpression whereExpression,
-        BagMode mode
+        BagMode mode,
+        String parentRefAttribute,
+        String parentAlias,
+        Integer cardinalityMin,
+        Integer cardinalityMax,
+        IdentityPlan identityPlan,
+        RefPlan parentRefPlan
 ) {
     public enum BagMode {
         EMBED,
         EXPAND
+    }
+
+    public boolean hasParentRef() {
+        return parentRefAttribute != null && !parentRefAttribute.isBlank()
+                && parentAlias != null && !parentAlias.isBlank();
+    }
+
+    public boolean hasIdentityPlan() {
+        return identityPlan != null && identityPlan.oidStrategy() != null;
+    }
+
+    public boolean isEmbed() {
+        return mode == BagMode.EMBED;
+    }
+
+    public boolean isExpand() {
+        return mode == BagMode.EXPAND;
     }
 }

@@ -1,0 +1,21 @@
+INTERLIS 2.4;
+
+MODEL BagFlatSource (en)
+  AT "http://test.ili-transformer.ch" VERSION "2026-06-07" =
+  TOPIC FlatTopic =
+    BASKET OID AS INTERLIS.UUIDOID;
+    OID AS INTERLIS.STANDARDOID;
+
+    CLASS Parent =
+      ParentId: MANDATORY TEXT*60;
+      Description: TEXT*200;
+    END Parent;
+
+    CLASS Child =
+      ParentId: MANDATORY TEXT*60;
+      X: MANDATORY 1.000 .. 3.000;
+      Y: MANDATORY 1.000 .. 4.000;
+    END Child;
+
+  END FlatTopic;
+END BagFlatSource.

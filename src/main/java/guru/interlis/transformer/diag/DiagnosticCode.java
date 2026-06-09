@@ -91,6 +91,12 @@ public final class DiagnosticCode {
     public static final String RUN_JOIN_MISSING = "ILITRF-RUN-JOIN-MISSING";
     public static final String RUN_JOIN_AMBIGUOUS = "ILITRF-RUN-JOIN-AMBIGUOUS";
 
+    // Phase 23 – BAG OF STRUCTURE
+    public static final String MAP_BAG_PARENT_REF_MISSING = "ILITRF-MAP-BAG-PARENT-REF-MISSING";
+    public static final String MAP_BAG_EXPAND_IDENTITY_MISSING = "ILITRF-MAP-BAG-EXPAND-IDENTITY-MISSING";
+    public static final String RUN_BAG_MANDATORY_MISSING = "ILITRF-RUN-BAG-MANDATORY-MISSING";
+    public static final String RUN_BAG_PARENT_OID_MISSING = "ILITRF-RUN-BAG-PARENT-OID-MISSING";
+
     // Geometry (Phase 13)
     public static final String GEOM_TYPE_MISMATCH = "ILITRF-GEOM-TYPE-MISMATCH";
     public static final String GEOM_CRS_MISMATCH = "ILITRF-GEOM-CRS-MISMATCH";

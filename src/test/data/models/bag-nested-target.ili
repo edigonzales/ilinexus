@@ -1,0 +1,21 @@
+INTERLIS 2.4;
+
+MODEL BagNestedTarget (en)
+  AT "http://test.ili-transformer.ch" VERSION "2026-06-07" =
+  TOPIC NestedTopic =
+    BASKET OID AS INTERLIS.UUIDOID;
+    OID AS INTERLIS.STANDARDOID;
+
+    STRUCTURE Position =
+      X: MANDATORY 1.000 .. 3.000;
+      Y: MANDATORY 1.000 .. 4.000;
+    END Position;
+
+    CLASS Parent =
+      ParentId: MANDATORY TEXT*60;
+      Description: TEXT*200;
+      Positions: BAG {0..*} OF Position;
+    END Parent;
+
+  END NestedTopic;
+END BagNestedTarget.

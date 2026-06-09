@@ -1,0 +1,53 @@
+version: 1
+
+job:
+  name: bag-expand-test
+  direction: nested-to-flat
+  failPolicy: strict
+  inputs:
+    - id: nested
+      path: "input/bag-nested.xtf"
+      model: "BagNestedTarget"
+      format: "xtf"
+  outputs:
+    - id: flat
+      path: "build/out/bag-flat.itf"
+      model: "BagFlatSource"
+      format: "itf"
+
+mapping:
+  oidStrategy:
+    default: deterministicUuid
+    namespace: "test-bag-expand"
+  basketStrategy:
+    default: preserveOrGenerateUuid
+
+  rules:
+    - id: parent-rule
+      target:
+        output: flat
+        class: "BagFlatSource.FlatTopic.Parent"
+      sources:
+        - alias: p
+          input: nested
+          class: "BagNestedTarget.NestedTopic.Parent"
+      identity:
+        sourceKey: ["p.ParentId"]
+      assign:
+        ParentId: "p.ParentId"
+        Description: "p.Description"
+      bags:
+        Positions:
+          from:
+            input: nested
+            class: "BagNestedTarget.NestedTopic.Position"
+            alias: posStruct
+          structure: "BagFlatSource.FlatTopic.Child"
+          mode: expand
+          parentRef:
+            association: "ParentChild_Parent"
+            role: "Parent"
+          assign:
+            ParentId: "p.ParentId"
+            X: "posStruct.X"
+            Y: "posStruct.Y"

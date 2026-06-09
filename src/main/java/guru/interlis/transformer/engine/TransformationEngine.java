@@ -53,11 +53,13 @@ import guru.interlis.transformer.state.DefaultOidGenerationService;
 import guru.interlis.transformer.state.DeferredRef;
 import guru.interlis.transformer.state.DeferredReference;
 import guru.interlis.transformer.state.DuplicateTargetOidException;
+import guru.interlis.transformer.state.InMemoryParentChildIndex;
 import guru.interlis.transformer.state.InMemorySourceLookupIndex;
 import guru.interlis.transformer.state.LookupKey;
 import guru.interlis.transformer.state.OidGenerationRequest;
 import guru.interlis.transformer.state.OidGenerationService;
 import guru.interlis.transformer.state.OidStrategy;
+import guru.interlis.transformer.state.ParentChildIndex;
 import guru.interlis.transformer.state.ReferenceIndex;
 import guru.interlis.transformer.state.SourceObjectKey;
 import guru.interlis.transformer.state.SourceLookupIndex;
@@ -88,6 +90,8 @@ public final class TransformationEngine {
     private final ReferenceIndex referenceIndex;
     private final ReferenceResolutionService referenceResolutionService;
     private final SourceLookupIndex sourceLookupIndex;
+    private final BagTransformationService bagTransformationService;
+    private final ParentChildIndex parentChildIndex;
 
     public TransformationEngine(ExpressionEngine expressionEngine, StateStore stateStore, DiagnosticCollector diagnostics) {
         this(expressionEngine, stateStore, diagnostics, new IoxGeometryAdapter(), new DefaultOidGenerationService(),
@@ -119,6 +123,16 @@ public final class TransformationEngine {
                                  OidGenerationService oidGenerationService,
                                  ReferenceIndex referenceIndex,
                                  SourceLookupIndex sourceLookupIndex) {
+        this(expressionEngine, stateStore, diagnostics, geometryAdapter, oidGenerationService,
+                referenceIndex, sourceLookupIndex, new InMemoryParentChildIndex());
+    }
+
+    public TransformationEngine(ExpressionEngine expressionEngine, StateStore stateStore,
+                                 DiagnosticCollector diagnostics, GeometryAdapter geometryAdapter,
+                                 OidGenerationService oidGenerationService,
+                                 ReferenceIndex referenceIndex,
+                                 SourceLookupIndex sourceLookupIndex,
+                                 ParentChildIndex parentChildIndex) {
         this.expressionEngine = expressionEngine;
         this.stateStore = stateStore;
         this.diagnostics = diagnostics;
@@ -127,6 +141,8 @@ public final class TransformationEngine {
         this.referenceIndex = referenceIndex;
         this.referenceResolutionService = referenceIndex != null ? new ReferenceResolutionService() : null;
         this.sourceLookupIndex = sourceLookupIndex;
+        this.parentChildIndex = parentChildIndex;
+        this.bagTransformationService = new BagTransformationService(expressionEngine, oidGenerationService);
     }
 
     // Counters for summary
@@ -226,6 +242,9 @@ public final class TransformationEngine {
                         stateStore.addSourceRecord(sr);
                         sourceLookupIndex.index(sr);
                         sourceRecordsRead++;
+
+                        // Index bag children for parent-child lookup (Phase 23)
+                        indexBagChild(plan, sr);
 
                         // Expand BAG structures into synthetic source records (Phase 12 reverse)
                         expandBagStructures(source, inputId, basketId, plan);
@@ -563,9 +582,19 @@ public final class TransformationEngine {
             }
         }
 
-        // Process BAG OF STRUCTURE (Phase 12)
+        // Process BAG OF STRUCTURE (Phase 12/23)
         for (BagPlan bag : rule.bags()) {
-            processBag(bag, rule, matchedSource, driverRecord, target, plan);
+            BoundSourceObject parent = new BoundSourceObject(matchedSource, driverRecord);
+            BagExecutionContext ctx = new BagExecutionContext(bag, parent, target, plan,
+                    stateStore, parentChildIndex, diagnostics, rule, expandedTargets);
+            if (bag.isEmbed()) {
+                bagTransformationService.embed(ctx);
+            } else {
+                int beforeCount = countExpandedTargets();
+                bagTransformationService.expand(ctx);
+                int afterCount = countExpandedTargets();
+                targetsCreated += (afterCount - beforeCount);
+            }
         }
 
         stateStore.putIdMapping(
@@ -920,155 +949,45 @@ public final class TransformationEngine {
         }
     }
 
-    // -- BAG OF STRUCTURE processing (Phase 12) -------------------------
+    // -- BAG OF STRUCTURE parent-child indexing (Phase 23) --------------
 
-    private void processBag(BagPlan bag, RulePlan rule, SourcePlan parentSource,
-                             SourceRecord parentRecord, Iom_jObject target, TransformPlan plan) {
-        if (bag.mode() == BagPlan.BagMode.EXPAND) {
-            processExpandBag(bag, rule, parentSource, parentRecord, target, plan);
-            return;
-        }
+    private void indexBagChild(TransformPlan plan, SourceRecord sr) {
+        String sourceClass = sr.sourceClass();
+        String sourceOid = sr.sourceObject().getobjectoid();
+        for (RulePlan rule : plan.rules()) {
+            for (BagPlan bag : rule.bags()) {
+                if (!bag.isEmbed()) continue;
+                if (!bag.hasParentRef()) continue;
+                String bagSourceClass = TypeSystemFacade.getScopedName(bag.fromSource().sourceClass());
+                if (!bagSourceClass.equals(sourceClass)) continue;
+                if (!bag.fromSource().inputIds().contains(sr.sourceFileId())) continue;
 
-        // EMBED mode: create embedded structures from separate source records
-        processEmbedBag(bag, rule, parentSource, parentRecord, target, plan);
-    }
-
-    private void processEmbedBag(BagPlan bag, RulePlan rule, SourcePlan parentSource,
-                                  SourceRecord parentRecord, Iom_jObject target, TransformPlan plan) {
-        String bagSourceClass = getScopedName(bag.fromSource().sourceClass());
-        List<IomObject> bagSourceObjects = new ArrayList<>();
-
-        for (SourceRecord sr : stateStore.sourceRecords()) {
-            if (bagSourceClass.equals(sr.sourceClass())
-                    && bag.fromSource().inputIds().contains(sr.sourceFileId())) {
-                bagSourceObjects.add(sr.sourceObject());
-            }
-        }
-
-        if (bagSourceObjects.isEmpty()) {
-            return;
-        }
-
-        List<IomObject> structures = new ArrayList<>();
-        Map<String, IomObject> parentSources = Map.of(parentSource.alias(), parentRecord.sourceObject());
-
-        for (IomObject bagSource : bagSourceObjects) {
-            Map<String, IomObject> allSources = new java.util.LinkedHashMap<>();
-            allSources.put(bag.fromSource().alias(), bagSource);
-            allSources.putAll(parentSources);
-
-            EvalContext bagCtx = new EvalContext(allSources, diagnostics, rule.ruleId(), plan.enumMaps());
-
-            // Evaluate bag where filter
-            if (bag.whereExpression() != null && bag.whereExpression().sourceText() != null
-                    && !bag.whereExpression().sourceText().isBlank()) {
-                Value whereResult = expressionEngine.evaluate(bag.whereExpression(), bagCtx);
-                if (!isFilterTruthy(whereResult)) {
-                    continue;
+                String refAttr = bag.parentRefAttribute();
+                String parentOid = sr.sourceObject().getattrvalue(refAttr);
+                if (parentOid != null && !parentOid.isBlank()) {
+                    parentChildIndex.index(bagSourceClass, refAttr, parentOid, sr);
                 }
             }
-
-            // Create structure object
-            Iom_jObject struct = new Iom_jObject(bag.structureName(), null);
-
-            Map<String, IomObject> assignSources = Map.of(bag.fromSource().alias(), bagSource);
-            EvalContext assignCtx = new EvalContext(assignSources, diagnostics, rule.ruleId(), plan.enumMaps());
-
-            for (AssignmentPlan ap : bag.assignments()) {
-                Value value = expressionEngine.evaluate(ap.expression(), assignCtx);
-                if (value.isDefined()) {
-                    Object nativeValue = value.toNative();
-                    if (nativeValue != null) {
-                        struct.setattrvalue(ap.targetAttrName(), nativeValue.toString());
-                    }
-                }
-            }
-            structures.add(struct);
-        }
-
-        // Add structures to the target object's BAG attribute
-        for (IomObject struct : structures) {
-            target.addattrobj(bag.bagAttrName(), struct);
         }
     }
 
-    private void processExpandBag(BagPlan bag, RulePlan rule, SourcePlan parentSource,
-                                    SourceRecord parentRecord, Iom_jObject target, TransformPlan plan) {
-        IomObject parentObj = parentRecord.sourceObject();
-        String bagAttrName = bag.bagAttrName();
-
-        int count = parentObj.getattrvaluecount(bagAttrName);
-        if (count <= 0) return;
-
-        for (int i = 0; i < count; i++) {
-            IomObject structure = parentObj.getattrobj(bagAttrName, i);
-            if (structure == null) continue;
-
-            String targetOid;
-            try {
-                targetOid = oidGenerationService.generate(new OidGenerationRequest(
-                        plan.oidPlan().defaultStrategy(), plan.oidPlan().namespace(), rule.ruleId(),
-                        parentRecord.sourceFileId(), parentRecord.sourceBasketId(),
-                        bag.structureName(),
-                        parentObj.getobjectoid() + "-" + i, new LinkedHashMap<>(),
-                        null));
-            } catch (UnsupportedOperationException e) {
-                targetOid = oidGenerationService.generate(new OidGenerationRequest(
-                        OidStrategy.INTEGER, plan.oidPlan().namespace(), rule.ruleId(),
-                        parentRecord.sourceFileId(), parentRecord.sourceBasketId(),
-                        bag.structureName(), parentObj.getobjectoid() + "-" + i,
-                        new LinkedHashMap<>(), null));
-            }
-
-            Iom_jObject bagTarget = new Iom_jObject(bag.structureName(), targetOid);
-            targetsCreated++;
-
-            Map<String, IomObject> assignSources = Map.of(bag.fromSource().alias(), structure);
-            EvalContext assignCtx = new EvalContext(assignSources, diagnostics, rule.ruleId(), plan.enumMaps());
-
-            for (AssignmentPlan ap : bag.assignments()) {
-                Value value = expressionEngine.evaluate(ap.expression(), assignCtx);
-                if (value.isDefined()) {
-                    Object nativeValue = value.toNative();
-                    if (nativeValue != null) {
-                        bagTarget.setattrvalue(ap.targetAttrName(), nativeValue.toString());
-                    }
-                }
-            }
-
-            try {
-                stateStore.registerTarget(
-                        new TargetObjectKey(rule.outputId(), bag.structureName(), bagTarget.getobjectoid()),
-                        bagTarget);
-            } catch (DuplicateTargetOidException e) {
-                diagnostics.add(new Diagnostic(DiagnosticCode.RUN_DUPLICATE_TARGET_OID, Severity.ERROR,
-                        e.getMessage(), rule.ruleId(), "This indicates a bug in OID generation"));
-            }
-
-            String targetTopic = extractTopic(bag.structureName());
-            String targetBasketId = BasketRouter.determineTargetBasket(
-                    plan.basketPlan().defaultStrategy(), parentRecord.sourceBasketId(), targetTopic,
-                    bag.structureName());
-            String basketKey = basketKey(targetTopic, targetBasketId);
-            expandedTargets
-                    .computeIfAbsent(rule.outputId(), ignored -> new LinkedHashMap<>())
-                    .computeIfAbsent(basketKey, ignored -> new ArrayList<>())
-                    .add(bagTarget);
-        }
-    }
-
-    // -- BAG Structure Expansion (Phase 12 reverse) ---------------------
+    // -- BAG Structure Expansion (Phase 12/23 reverse) ---------------------
 
     private void expandBagStructures(IomObject source, String inputId, String basketId, TransformPlan plan) {
         for (RulePlan rule : plan.rules()) {
             for (BagPlan bag : rule.bags()) {
                 if (bag.mode() != BagPlan.BagMode.EXPAND) continue;
-                // In EXPAND mode, bagAttrName is the source BAG attribute name
-                // fromSource.class is the parent class, fromSource.inputIds has the input
                 if (!bag.fromSource().inputIds().contains(inputId)) continue;
 
-                String parentClassName = getScopedName(bag.fromSource().sourceClass());
-                if (!parentClassName.equals(source.getobjecttag())) continue;
+                // Match against the rule's parent source class (not the bag's fromSource)
+                String parentClassName = null;
+                for (SourcePlan parentSp : rule.sources()) {
+                    if (parentSp.inputIds().contains(inputId)) {
+                        parentClassName = getScopedName(parentSp.sourceClass());
+                        break;
+                    }
+                }
+                if (parentClassName == null || !parentClassName.equals(source.getobjecttag())) continue;
 
                 String bagAttrName = bag.bagAttrName();
                 int count = source.getattrvaluecount(bagAttrName);
@@ -1077,8 +996,9 @@ public final class TransformationEngine {
                 for (int i = 0; i < count; i++) {
                     IomObject structure = source.getattrobj(bagAttrName, i);
                     if (structure == null) continue;
-                    // The structure's tag is the structure type name from the target model
-                    // Create a synthetic source record with the parent's OID stored
+                    // Store parent context on the synthetic structure (Phase 23)
+                    structure.setattrvalue("_parentOid", source.getobjectoid());
+                    structure.setattrvalue("_parentClass", source.getobjecttag());
                     stateStore.addSourceRecord(new SourceRecord(
                             inputId, basketId,
                             structure.getobjecttag(),
@@ -1133,6 +1053,16 @@ public final class TransformationEngine {
             return value.substring(1, value.length() - 1);
         }
         return value;
+    }
+
+    private int countExpandedTargets() {
+        int count = 0;
+        for (var baskets : expandedTargets.values()) {
+            for (var targets : baskets.values()) {
+                count += targets.size();
+            }
+        }
+        return count;
     }
 
     private String extractTopic(String qualifiedClassName) {
