@@ -214,10 +214,10 @@ public final class FeatureMatrix {
                 "Enum mapping pass-through with diagnostic warning",
                 ""));
 
-        entries.add(FeatureEntry.of("Joins / Splits / Merge", "-",
-                FeatureStatus.UNSUPPORTED,
-                "Multi-source joins, record splits, merge semantics",
-                ""));
+        entries.add(FeatureEntry.of("Joins / Splits / Merge", "22",
+                FeatureStatus.EXPERIMENTAL,
+                "Multi-source equi-joins, create directives, rule dependency ordering",
+                "InnerJoinTest, LeftJoinTest, CreateAdditionalObjectTest"));
 
         entries.add(FeatureEntry.of("Persistent StateStore", "-",
                 FeatureStatus.UNSUPPORTED,

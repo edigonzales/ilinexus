@@ -9,12 +9,13 @@ import guru.interlis.transformer.model.TypeSystemFacade;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
 
-class UnsupportedJoinRejectedTest {
+class CreateCompilationTest {
 
     private static final String MODELDIR = "src/test/data/models/";
     private static TypeSystemFacade testModelTs;
@@ -28,28 +29,43 @@ class UnsupportedJoinRejectedTest {
     }
 
     @Test
-    void joinsAreRejected() {
+    void createIsCompiled() {
         JobConfig config = minimalConfig();
-        JobConfig.JoinSpec join = new JobConfig.JoinSpec();
-        join.left = "s";
-        join.right = "s2";
-        join.on = "${s.Name} == ${s2.Name}";
-        join.type = "inner";
-        config.mapping.rules.get(0).joins = List.of(join);
+        JobConfig.CreateSpec create = new JobConfig.CreateSpec();
+        create.clazz = "TestModel.TestTopic.TestClass";
+        create.assign = new LinkedHashMap<>();
+        create.assign.put("Name", "${s.Name}");
+        config.mapping.rules.get(0).create = List.of(create);
+
+        Map<String, TypeSystemFacade> ts = Map.of("TestModel", testModelTs);
+        TransformPlan plan = new MappingCompiler().compileTyped(config, ts, ts);
+
+        assertThat(plan.diagnostics().all()).noneMatch(d ->
+                d.code().equals(DiagnosticCode.MAP_UNSUPPORTED_FEATURE));
+        assertThat(plan.rules().get(0).creates()).isNotEmpty();
+    }
+
+    @Test
+    void createUnknownClassIsDiagnosed() {
+        JobConfig config = minimalConfig();
+        JobConfig.CreateSpec create = new JobConfig.CreateSpec();
+        create.clazz = "TestModel.TestTopic.NonExistentClass";
+        create.assign = new LinkedHashMap<>();
+        create.assign.put("Name", "${s.Name}");
+        config.mapping.rules.get(0).create = List.of(create);
 
         Map<String, TypeSystemFacade> ts = Map.of("TestModel", testModelTs);
         TransformPlan plan = new MappingCompiler().compileTyped(config, ts, ts);
 
         assertThat(plan.diagnostics().all()).anyMatch(d ->
-                d.code().equals(DiagnosticCode.MAP_UNSUPPORTED_FEATURE)
-                        && d.severity() == Severity.ERROR
-                        && d.message().contains("Joins"));
+                d.code().equals(DiagnosticCode.MAP_CREATE_UNKNOWN_CLASS)
+                        && d.severity() == Severity.ERROR);
     }
 
     @Test
-    void emptyJoinsListNotRejected() {
+    void emptyCreateListOk() {
         JobConfig config = minimalConfig();
-        config.mapping.rules.get(0).joins = List.of();
+        config.mapping.rules.get(0).create = List.of();
 
         Map<String, TypeSystemFacade> ts = Map.of("TestModel", testModelTs);
         TransformPlan plan = new MappingCompiler().compileTyped(config, ts, ts);
@@ -59,7 +75,7 @@ class UnsupportedJoinRejectedTest {
     }
 
     @Test
-    void nullJoinsNotRejected() {
+    void nullCreateOk() {
         JobConfig config = minimalConfig();
 
         Map<String, TypeSystemFacade> ts = Map.of("TestModel", testModelTs);

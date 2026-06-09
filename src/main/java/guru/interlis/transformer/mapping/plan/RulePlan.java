@@ -11,5 +11,7 @@ public record RulePlan(
         java.util.List<RefPlan> refs,
         java.util.List<BagPlan> bags,
         java.util.List<String> identitySourceKeys,
-        CompiledExpression predicate
+        CompiledExpression predicate,
+        java.util.List<JoinPlan> joins,
+        java.util.List<CreatePlan> creates
 ) {}

@@ -11,22 +11,86 @@ public final class DslCapabilityValidator {
 
     public void validateSupportedFeatures(JobConfig config, DiagnosticCollector diagnostics) {
         for (JobConfig.RuleSpec rule : config.mapping.rules) {
-            validateRuleFeatures(rule, diagnostics);
+            validateJoinSpecs(rule, diagnostics);
+            validateCreateSpecs(rule, diagnostics);
+            validateBagModes(rule, diagnostics);
         }
         validateBasketStrategy(config, diagnostics);
     }
 
-    private void validateRuleFeatures(JobConfig.RuleSpec rule, DiagnosticCollector diagnostics) {
-        if (rule.joins != null && !rule.joins.isEmpty()) {
-            diagnostics.add(new Diagnostic(DiagnosticCode.MAP_UNSUPPORTED_FEATURE, Severity.ERROR,
-                    "Joins are not yet supported (Phase 22). Rule: " + rule.id,
-                    rule.id, "Remove joins definition"));
+    private void validateJoinSpecs(JobConfig.RuleSpec rule, DiagnosticCollector diagnostics) {
+        if (rule.joins == null || rule.joins.isEmpty()) {
+            return;
         }
-        if (rule.create != null && !rule.create.isEmpty()) {
-            diagnostics.add(new Diagnostic(DiagnosticCode.MAP_UNSUPPORTED_FEATURE, Severity.ERROR,
-                    "Create is not yet supported (Phase 22). Rule: " + rule.id,
-                    rule.id, "Remove create definition"));
+        java.util.Set<String> sourceAliases = new java.util.HashSet<>();
+        for (JobConfig.SourceSpec s : rule.sources) {
+            if (s.alias != null && !s.alias.isBlank()) {
+                sourceAliases.add(s.alias);
+            }
         }
+        for (JobConfig.JoinSpec join : rule.joins) {
+            if (join.left == null || join.left.isBlank()) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.MAP_JOIN_INVALID, Severity.ERROR,
+                        "Join missing 'left' alias. Rule: " + rule.id,
+                        rule.id, "Specify the left source alias for the join"));
+                continue;
+            }
+            if (!sourceAliases.contains(join.left)) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.MAP_JOIN_UNKNOWN_ALIAS, Severity.ERROR,
+                        "Join 'left' alias '" + join.left + "' not found in rule sources. Rule: " + rule.id,
+                        rule.id, "Check that the alias is defined in the rule's sources"));
+            }
+            if (join.right == null || join.right.isBlank()) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.MAP_JOIN_INVALID, Severity.ERROR,
+                        "Join missing 'right' alias. Rule: " + rule.id,
+                        rule.id, "Specify the right source alias for the join"));
+                continue;
+            }
+            if (!sourceAliases.contains(join.right)) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.MAP_JOIN_UNKNOWN_ALIAS, Severity.ERROR,
+                        "Join 'right' alias '" + join.right + "' not found in rule sources. Rule: " + rule.id,
+                        rule.id, "Check that the alias is defined in the rule's sources"));
+            }
+            if (join.left.equals(join.right)) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.MAP_JOIN_SELF_REF, Severity.ERROR,
+                        "Join 'left' and 'right' aliases are the same: " + join.left + ". Rule: " + rule.id,
+                        rule.id, "Joins require two different source aliases"));
+            }
+            if (join.on == null || join.on.isBlank()) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.MAP_JOIN_INVALID, Severity.ERROR,
+                        "Join missing 'on' condition. Rule: " + rule.id,
+                        rule.id, "Specify an equi-join condition like 'left.attr = right.attr'"));
+            }
+            if (join.type != null && !join.type.isBlank()
+                    && !join.type.equalsIgnoreCase("inner") && !join.type.equalsIgnoreCase("left")) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.MAP_JOIN_INVALID, Severity.ERROR,
+                        "Unknown join type '" + join.type + "'. Rule: " + rule.id,
+                        rule.id, "Valid types: inner, left"));
+            }
+        }
+    }
+
+    private void validateCreateSpecs(JobConfig.RuleSpec rule, DiagnosticCollector diagnostics) {
+        if (rule.create == null || rule.create.isEmpty()) {
+            return;
+        }
+        java.util.Set<String> createIds = new java.util.HashSet<>();
+        for (JobConfig.CreateSpec create : rule.create) {
+            if (create.clazz == null || create.clazz.isBlank()) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.MAP_CREATE_INVALID, Severity.ERROR,
+                        "Create missing target class. Rule: " + rule.id,
+                        rule.id, "Specify the target class for the create directive"));
+            }
+            String id = create.clazz;
+            if (!createIds.add(id)) {
+                diagnostics.add(new Diagnostic(DiagnosticCode.MAP_CREATE_DUPLICATE, Severity.ERROR,
+                        "Duplicate create target class '" + id + "'. Rule: " + rule.id,
+                        rule.id, "Each create directive must target a unique class"));
+            }
+        }
+    }
+
+    private void validateBagModes(JobConfig.RuleSpec rule, DiagnosticCollector diagnostics) {
         if (rule.bags != null) {
             for (var entry : rule.bags.entrySet()) {
                 String bagMode = entry.getValue().mode;

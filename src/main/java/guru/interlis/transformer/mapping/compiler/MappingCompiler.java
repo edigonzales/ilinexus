@@ -21,15 +21,22 @@ import guru.interlis.transformer.expr.builtins.MathFunctions;
 import guru.interlis.transformer.expr.builtins.RefFunctions;
 import guru.interlis.transformer.expr.builtins.StringFunctions;
 import guru.interlis.transformer.mapping.model.JobConfig;
+import guru.interlis.transformer.expr.FunctionCallExpr;
+import guru.interlis.transformer.expr.PathExpr;
 import guru.interlis.transformer.mapping.plan.AssignmentPlan;
 import guru.interlis.transformer.mapping.plan.BagPlan;
 import guru.interlis.transformer.mapping.plan.BasketPlan;
 import guru.interlis.transformer.mapping.plan.CompileMode;
 import guru.interlis.transformer.mapping.plan.CompiledExpression;
+import guru.interlis.transformer.mapping.plan.CreatePlan;
 import guru.interlis.transformer.mapping.plan.ExpressionCompileContext;
 import guru.interlis.transformer.mapping.plan.ExpressionKind;
 import guru.interlis.transformer.mapping.plan.FailPolicy;
+import guru.interlis.transformer.mapping.plan.IdentityPlan;
 import guru.interlis.transformer.mapping.plan.InputBinding;
+import guru.interlis.transformer.mapping.plan.JoinCardinality;
+import guru.interlis.transformer.mapping.plan.JoinPlan;
+import guru.interlis.transformer.mapping.plan.JoinType;
 import guru.interlis.transformer.mapping.plan.OidPlan;
 import guru.interlis.transformer.mapping.plan.OutputBinding;
 import guru.interlis.transformer.mapping.plan.RefPlan;
@@ -48,6 +55,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public final class MappingCompiler {
@@ -339,6 +347,13 @@ public final class MappingCompiler {
         // Compile identity source keys
         List<String> identitySourceKeys = compileIdentityKeys(rule, sourcePlans, diag);
 
+        // Phase 22: Compile joins
+        List<JoinPlan> joinPlans = compileJoins(rule, sourcePlans, sourcesByAlias, ruleId, enumMaps, diag);
+
+        // Phase 22: Compile creates
+        List<CreatePlan> createPlans = compileCreates(rule, targetOutput, sourcePlans, sourcesByAlias,
+                ruleId, modelRegistry, enumMaps, mappingDefaults, diag);
+
         return new RulePlan(
                 ruleId,
                 targetOutput != null ? targetOutput : "",
@@ -348,8 +363,136 @@ public final class MappingCompiler {
                 refPlans,
                 bagPlans,
                 identitySourceKeys,
-                predicate
+                predicate,
+                joinPlans,
+                createPlans
         );
+    }
+
+    // -- Phase 22: Join compilation -------------------------------------------
+
+    private List<JoinPlan> compileJoins(JobConfig.RuleSpec rule, List<SourcePlan> sourcePlans,
+                                         Map<String, SourcePlan> sourcesByAlias,
+                                         String ruleId, Map<String, Map<String, String>> enumMaps,
+                                         DiagnosticCollector diag) {
+        if (rule.joins == null || rule.joins.isEmpty()) {
+            return List.of();
+        }
+        List<JoinPlan> result = new ArrayList<>();
+        for (int i = 0; i < rule.joins.size(); i++) {
+            JobConfig.JoinSpec js = rule.joins.get(i);
+            String joinId = ruleId + "-join-" + i;
+
+            SourcePlan leftSp = sourcesByAlias.get(js.left);
+            SourcePlan rightSp = sourcesByAlias.get(js.right);
+            if (leftSp == null || rightSp == null) {
+                continue;
+            }
+
+            // Build expression context with both aliases
+            Map<String, SourcePlan> joinAliases = new HashMap<>();
+            joinAliases.put(js.left, leftSp);
+            joinAliases.put(js.right, rightSp);
+
+            ExpressionCompileContext ctx = new ExpressionCompileContext(
+                    joinId, joinAliases, TypeInfo.BOOLEAN, functionRegistry, enumMaps);
+            CompiledExpression condition = expressionCompiler.compile(js.on, ctx, diag);
+
+            // Verify it's an indexable equi-join
+            if (condition == null || !isEquiJoin(condition)) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_JOIN_NON_EQUI, Severity.ERROR,
+                        "Join condition is not an indexable equi-join. Only 'left.attr = right.attr' is supported. Rule: " + ruleId,
+                        joinId, "Use a simple equality between attributes from different sources"));
+                continue;
+            }
+
+            JoinType type = JoinType.INNER;
+            if (js.type != null && js.type.equalsIgnoreCase("left")) {
+                type = JoinType.LEFT;
+            }
+
+            JoinCardinality cardinality = JoinCardinality.MANY_TO_MANY;
+
+            result.add(new JoinPlan(joinId, type, leftSp, rightSp, condition, cardinality));
+        }
+        return result;
+    }
+
+    private boolean isEquiJoin(CompiledExpression condition) {
+        if (!(condition.ast() instanceof FunctionCallExpr call)) {
+            return false;
+        }
+        if (!call.functionName().equals("eq")) {
+            return false;
+        }
+        if (call.arguments().size() != 2) {
+            return false;
+        }
+        if (!(call.arguments().get(0) instanceof PathExpr leftPath)) {
+            return false;
+        }
+        if (!(call.arguments().get(1) instanceof PathExpr rightPath)) {
+            return false;
+        }
+        return !leftPath.alias().equals(rightPath.alias());
+    }
+
+    // -- Phase 22: Create compilation -----------------------------------------
+
+    private List<CreatePlan> compileCreates(JobConfig.RuleSpec rule, String targetOutput,
+                                             List<SourcePlan> sourcePlans,
+                                             Map<String, SourcePlan> sourcesByAlias,
+                                             String ruleId, ModelRegistry modelRegistry,
+                                             Map<String, Map<String, String>> enumMaps,
+                                             Map<String, String> mappingDefaults,
+                                             DiagnosticCollector diag) {
+        if (rule.create == null || rule.create.isEmpty()) {
+            return List.of();
+        }
+        List<CreatePlan> result = new ArrayList<>();
+        for (int i = 0; i < rule.create.size(); i++) {
+            JobConfig.CreateSpec cs = rule.create.get(i);
+            String createId = ruleId + "-create-" + i;
+
+            String targetClassName = cs.clazz;
+            Table targetClass = resolveTargetClass(targetOutput, targetClassName, modelRegistry);
+            if (targetClass == null) {
+                diag.add(new Diagnostic(DiagnosticCode.MAP_CREATE_UNKNOWN_CLASS, Severity.ERROR,
+                        "Create target class not found in model: " + targetClassName,
+                        createId, "Check the class name and model registration"));
+                continue;
+            }
+
+            TypeSystemFacade targetTs = targetOutput != null && !targetOutput.isEmpty()
+                    ? modelRegistry.requireTargetTypeSystem(targetOutput) : null;
+
+            List<AssignmentPlan> assignments = new ArrayList<>();
+            Set<String> assignedTargets = new HashSet<>();
+            if (cs.assign != null) {
+                for (var entry : cs.assign.entrySet()) {
+                    if (entry.getKey() == null || entry.getKey().isBlank()) continue;
+                    if (!assignedTargets.add(entry.getKey())) {
+                        diag.add(new Diagnostic(DiagnosticCode.MAP_DUPLICATE_TARGET_ASSIGN, Severity.ERROR,
+                                "Target attribute assigned multiple times in create: " + entry.getKey(),
+                                createId, "Remove duplicate assignment"));
+                    }
+                    ExpressionCompileContext ctx = new ExpressionCompileContext(
+                            createId, sourcesByAlias, null, functionRegistry, enumMaps);
+                    CompiledExpression expr = expressionCompiler.compile(entry.getValue(), ctx, diag);
+                    if (expr != null) {
+                        AssignmentPlan ap = new AssignmentPlan(entry.getKey(), null, expr);
+                        assignments.add(ap);
+                    }
+                }
+            }
+
+            IdentityPlan identity = new IdentityPlan(OidStrategy.INTEGER, null, List.of());
+
+            result.add(new CreatePlan(createId, targetOutput != null ? targetOutput : "",
+                    targetClass, Optional.empty(), assignments, List.of(),
+                    List.of(), identity));
+        }
+        return result;
     }
 
     private SourcePlan compileSource(JobConfig.SourceSpec src, String ruleId,

@@ -75,6 +75,22 @@ public final class DiagnosticCode {
     public static final String MAP_UNSUPPORTED_BAG_MODE = "ILITRF-MAP-UNSUPPORTED-BAG-MODE";
     public static final String MAP_UNKNOWN_COMPILE_MODE = "ILITRF-MAP-UNKNOWN-COMPILE-MODE";
 
+    // Phase 22 – Joins
+    public static final String MAP_JOIN_INVALID = "ILITRF-MAP-JOIN-INVALID";
+    public static final String MAP_JOIN_NON_EQUI = "ILITRF-MAP-JOIN-NON-EQUI";
+    public static final String MAP_JOIN_UNKNOWN_ALIAS = "ILITRF-MAP-JOIN-UNKNOWN-ALIAS";
+    public static final String MAP_JOIN_SELF_REF = "ILITRF-MAP-JOIN-SELF-REF";
+    public static final String MAP_JOIN_MISSING_SOURCE = "ILITRF-MAP-JOIN-MISSING-SOURCE";
+
+    // Phase 22 – Create
+    public static final String MAP_CREATE_INVALID = "ILITRF-MAP-CREATE-INVALID";
+    public static final String MAP_CREATE_UNKNOWN_CLASS = "ILITRF-MAP-CREATE-UNKNOWN-CLASS";
+    public static final String MAP_CREATE_DUPLICATE = "ILITRF-MAP-CREATE-DUPLICATE";
+
+    // Phase 22 – Runtime Join
+    public static final String RUN_JOIN_MISSING = "ILITRF-RUN-JOIN-MISSING";
+    public static final String RUN_JOIN_AMBIGUOUS = "ILITRF-RUN-JOIN-AMBIGUOUS";
+
     // Geometry (Phase 13)
     public static final String GEOM_TYPE_MISMATCH = "ILITRF-GEOM-TYPE-MISMATCH";
     public static final String GEOM_CRS_MISMATCH = "ILITRF-GEOM-CRS-MISMATCH";
