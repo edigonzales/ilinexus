@@ -22,13 +22,18 @@ import guru.interlis.transformer.expr.builtins.StringFunctions;
 import guru.interlis.transformer.mapping.model.JobConfig;
 import guru.interlis.transformer.mapping.plan.AssignmentPlan;
 import guru.interlis.transformer.mapping.plan.BagPlan;
+import guru.interlis.transformer.mapping.plan.BasketPlan;
 import guru.interlis.transformer.mapping.plan.ExpressionKind;
-// Plan records imported individually
+import guru.interlis.transformer.mapping.plan.FailPolicy;
+import guru.interlis.transformer.mapping.plan.InputBinding;
+import guru.interlis.transformer.mapping.plan.OidPlan;
+import guru.interlis.transformer.mapping.plan.OutputBinding;
 import guru.interlis.transformer.mapping.plan.RefPlan;
 import guru.interlis.transformer.mapping.plan.RulePlan;
 import guru.interlis.transformer.mapping.plan.SourcePlan;
 import guru.interlis.transformer.mapping.plan.TransformPlan;
 import guru.interlis.transformer.mapping.plan.TypeInfo;
+import guru.interlis.transformer.model.ModelRegistry;
 import guru.interlis.transformer.model.TypeSystemFacade;
 import guru.interlis.transformer.state.BasketStrategy;
 import guru.interlis.transformer.state.OidStrategy;
@@ -72,42 +77,21 @@ public final class MappingCompiler {
         return new CompileResult(config, diagnostics);
     }
 
-    public TransformPlan compileTyped(JobConfig config,
-                                       Map<String, TypeSystemFacade> sourceTypeSystems,
-                                       Map<String, TypeSystemFacade> targetTypeSystems) {
+    // -- New typed compilation with ModelRegistry ---------------------------
+
+    public TransformPlan compileTyped(JobConfig config, ModelRegistry modelRegistry) {
         DiagnosticCollector diagnostics = new DiagnosticCollector();
 
-        // Structural validation first
         validateVersion(config, diagnostics);
         validateOutputs(config, diagnostics);
         validateRulesStructurally(config, diagnostics);
 
-        // Build ID → model mapping
-        Map<String, String> inputModelById = buildInputModelMap(config);
-        Map<String, String> outputModelById = buildOutputModelMap(config);
-        Map<String, TypeSystemFacade> sourceByModel = new HashMap<>();
-        Map<String, TypeSystemFacade> targetByModel = new HashMap<>();
-
         // Compile rules
         List<RulePlan> rulePlans = new ArrayList<>();
         for (JobConfig.RuleSpec rule : config.mapping.rules) {
-            RulePlan rp = compileRule(rule, diagnostics, inputModelById, outputModelById,
-                    sourceTypeSystems, targetTypeSystems);
+            RulePlan rp = compileRule(rule, diagnostics, modelRegistry);
             if (rp != null) {
                 rulePlans.add(rp);
-                // Track which models are actually used
-                String targetModel = outputModelById.get(rule.getEffectiveTargetOutput());
-                if (targetModel != null && targetTypeSystems.containsKey(targetModel)) {
-                    targetByModel.putIfAbsent(targetModel, targetTypeSystems.get(targetModel));
-                }
-                for (JobConfig.SourceSpec src : rule.sources) {
-                    for (String inputId : src.getInputIds()) {
-                        String srcModel = inputModelById.get(inputId);
-                        if (srcModel != null && sourceTypeSystems.containsKey(srcModel)) {
-                            sourceByModel.putIfAbsent(srcModel, sourceTypeSystems.get(srcModel));
-                        }
-                    }
-                }
             }
         }
 
@@ -131,9 +115,9 @@ public final class MappingCompiler {
         if (oidStrategy == OidStrategy.INTEGER) {
             for (RulePlan rp : rulePlans) {
                 String targetPath = getScopedName(rp.targetClass());
-                String outputModel = outputModelById.get(rp.outputId());
-                if (outputModel != null && targetTypeSystems.containsKey(outputModel)) {
-                    TypeSystemFacade ts = targetTypeSystems.get(outputModel);
+                String outputId = rp.outputId();
+                if (outputId != null && !outputId.isEmpty()) {
+                    TypeSystemFacade ts = modelRegistry.requireTargetTypeSystem(outputId);
                     String oidType = ts.getOidType(targetPath);
                     if (oidType != null && (oidType.contains("UUID") || oidType.contains("AnyOID"))) {
                         diagnostics.add(new Diagnostic(DiagnosticCode.MAP_OID_TYPE_MISMATCH, Severity.ERROR,
@@ -157,19 +141,37 @@ public final class MappingCompiler {
             }
         }
 
+        // Parse fail policy
+        FailPolicy failPolicy = parseFailPolicy(config.job.failPolicy);
+
         return new TransformPlan(
                 config.job.name,
                 config.job.direction,
-                config.job.failPolicy,
+                failPolicy,
                 rulePlans,
-                sourceByModel,
-                targetByModel,
+                modelRegistry.inputsById(),
+                modelRegistry.outputsById(),
                 diagnostics,
-                oidStrategy,
-                oidNamespace,
-                basketStrategy,
+                new OidPlan(oidStrategy, oidNamespace),
+                new BasketPlan(basketStrategy),
                 extractEnumMaps(config)
         );
+    }
+
+    // -- Deprecated typed compilation (backward compatible) ------------------
+
+    /**
+     * @deprecated use {@link #compileTyped(JobConfig, ModelRegistry)} instead.
+     * Internally constructs a temporary {@link ModelRegistry} from the provided maps.
+     */
+    @Deprecated
+    public TransformPlan compileTyped(JobConfig config,
+                                       Map<String, TypeSystemFacade> sourceTypeSystems,
+                                       Map<String, TypeSystemFacade> targetTypeSystems) {
+        ModelRegistry registry = ModelRegistry.builder()
+                .config(config)
+                .buildWithSuppliedTypeSystems(sourceTypeSystems, targetTypeSystems);
+        return compileTyped(config, registry);
     }
 
     // -- Backward-compatible convenience method ----------------------------
@@ -190,16 +192,13 @@ public final class MappingCompiler {
     // -- Typed rule compilation --------------------------------------------
 
     private RulePlan compileRule(JobConfig.RuleSpec rule, DiagnosticCollector diag,
-                                  Map<String, String> inputModelById,
-                                  Map<String, String> outputModelById,
-                                  Map<String, TypeSystemFacade> sourceTypeSystems,
-                                  Map<String, TypeSystemFacade> targetTypeSystems) {
+                                  ModelRegistry modelRegistry) {
         String ruleId = rule.id;
         String targetOutput = rule.getEffectiveTargetOutput();
         String targetClassName = rule.getEffectiveTargetClass();
 
-        // Resolve target class
-        Table targetClass = resolveTargetClass(targetOutput, targetClassName, outputModelById, targetTypeSystems);
+        // Resolve target class via ModelRegistry
+        Table targetClass = resolveTargetClass(targetOutput, targetClassName, modelRegistry);
         if (targetClass == null) {
             diag.add(new Diagnostic(DiagnosticCode.MAP_UNKNOWN_TARGET_CLASS, Severity.ERROR,
                     "Target class not found in model: " + targetClassName,
@@ -217,12 +216,13 @@ public final class MappingCompiler {
                     ruleId, "Views cannot be written as transfer objects"));
         }
 
-        TypeSystemFacade targetTs = targetTypeSystem(targetOutput, outputModelById, targetTypeSystems);
+        TypeSystemFacade targetTs = targetOutput != null && !targetOutput.isEmpty()
+                ? modelRegistry.requireTargetTypeSystem(targetOutput) : null;
 
         // Compile sources
         List<SourcePlan> sourcePlans = new ArrayList<>();
         for (JobConfig.SourceSpec src : rule.sources) {
-            SourcePlan sp = compileSource(src, ruleId, inputModelById, sourceTypeSystems, diag);
+            SourcePlan sp = compileSource(src, ruleId, modelRegistry, diag);
             if (sp != null) {
                 sourcePlans.add(sp);
             }
@@ -264,7 +264,7 @@ public final class MappingCompiler {
 
         // Compile bags
         List<BagPlan> bagPlans = compileBags(rule, sourcePlans, targetClass, targetTs, ruleId,
-                inputModelById, sourceTypeSystems, targetTypeSystems, diag);
+                modelRegistry, diag);
 
         // Compile identity source keys
         List<String> identitySourceKeys = compileIdentityKeys(rule, sourcePlans, diag);
@@ -282,19 +282,19 @@ public final class MappingCompiler {
     }
 
     private SourcePlan compileSource(JobConfig.SourceSpec src, String ruleId,
-                                      Map<String, String> inputModelById,
-                                      Map<String, TypeSystemFacade> sourceTypeSystems,
+                                      ModelRegistry modelRegistry,
                                       DiagnosticCollector diag) {
         if (src.alias == null || src.alias.isBlank()) return null;
         if (src.clazz == null || src.clazz.isBlank()) return null;
 
-        // Find the model for this source's inputs
+        // Find the type system for this source's inputs
         TypeSystemFacade sourceTs = null;
         for (String inputId : src.getInputIds()) {
-            String modelName = inputModelById.get(inputId);
-            if (modelName != null) {
-                sourceTs = sourceTypeSystems.get(modelName);
+            try {
+                sourceTs = modelRegistry.requireSourceTypeSystem(inputId);
                 break;
+            } catch (IllegalArgumentException e) {
+                // try next input
             }
         }
 
@@ -415,18 +415,15 @@ public final class MappingCompiler {
             // Strip optional alias prefix
             if (trimmed.contains(".")) {
                 String[] parts = trimmed.split("\\.", 2);
-                if (parts.length != 2) {
-                    keys.add(trimmed);
-                    continue;
-                }
-                String alias = parts[0];
-                String attrName = parts[1];
-                SourcePlan matchingSource = sourcePlans.stream()
-                        .filter(sp -> sp.alias() != null && sp.alias().equals(alias))
-                        .findFirst().orElse(null);
-                if (matchingSource != null && matchingSource.sourceClass() != null) {
-                    // Validate attribute exists on source class
-                    // (skip validation if source class is null due to earlier compile errors)
+                if (parts.length == 2) {
+                    String alias = parts[0];
+                    String attrName = parts[1];
+                    SourcePlan matchingSource = sourcePlans.stream()
+                            .filter(sp -> sp.alias() != null && sp.alias().equals(alias))
+                            .findFirst().orElse(null);
+                    if (matchingSource != null && matchingSource.sourceClass() != null) {
+                        // Validate attribute exists on source class
+                    }
                 }
             }
             keys.add(trimmed);
@@ -439,9 +436,7 @@ public final class MappingCompiler {
     private List<BagPlan> compileBags(JobConfig.RuleSpec rule, List<SourcePlan> sourcePlans,
                                        Table targetClass, TypeSystemFacade targetTs,
                                        String ruleId,
-                                       Map<String, String> inputModelById,
-                                       Map<String, TypeSystemFacade> sourceTypeSystems,
-                                       Map<String, TypeSystemFacade> targetTypeSystems,
+                                       ModelRegistry modelRegistry,
                                        DiagnosticCollector diag) {
         if (rule.bags == null || rule.bags.isEmpty()) {
             return List.of();
@@ -482,7 +477,6 @@ public final class MappingCompiler {
             String structureName = bagSpec.structure;
             if (structureName != null && !structureName.isBlank()) {
                 String componentName = getScopedName(componentTable);
-                // Accept simple name match or full-qualified name match
                 if (!componentTable.getName().equals(structureName)
                         && !componentName.equals(structureName)
                         && !componentName.endsWith("." + structureName)) {
@@ -517,9 +511,8 @@ public final class MappingCompiler {
                 continue;
             }
 
-            // Resolve the bag source class
-            String sourceModelName = inputModelById.get(from.input);
-            TypeSystemFacade sourceTs = sourceModelName != null ? sourceTypeSystems.get(sourceModelName) : null;
+            // Resolve the bag source class via ModelRegistry
+            TypeSystemFacade sourceTs = modelRegistry.requireSourceTypeSystem(from.input);
             Table bagSourceClass = null;
             if (sourceTs != null) {
                 bagSourceClass = sourceTs.resolveClass(from.clazz);
@@ -723,7 +716,6 @@ public final class MappingCompiler {
         ch.interlis.ili2c.metamodel.Type type = attr.getDomain();
         TypeInfo result = classifyIliTypeObj(type != null ? type : null);
         if (result == TypeInfo.UNKNOWN && type != null) {
-            // Try resolving domain aliases (for user-defined coordinate domains)
             ch.interlis.ili2c.metamodel.Type resolved = attr.getDomainResolvingAliases();
             if (resolved != null && resolved != type) {
                 result = classifyIliTypeObj(resolved);
@@ -863,54 +855,31 @@ public final class MappingCompiler {
         }
     }
 
-    // -- Resolvers ---------------------------------------------------------
+    // -- Resolvers (ModelRegistry-based) -----------------------------------
 
     private Table resolveTargetClass(String outputId, String className,
-                                      Map<String, String> outputModelById,
-                                      Map<String, TypeSystemFacade> targetTypeSystems) {
+                                      ModelRegistry modelRegistry) {
         if (className == null || className.isBlank()) return null;
-        String modelName = outputId != null ? outputModelById.get(outputId) : null;
-        TypeSystemFacade ts = modelName != null ? targetTypeSystems.get(modelName) : null;
-        if (ts != null) {
+        if (outputId != null && !outputId.isEmpty()) {
+            TypeSystemFacade ts = modelRegistry.requireTargetTypeSystem(outputId);
             Table resolved = ts.resolveClass(className);
             if (resolved != null) return resolved;
         }
-        // Fallback: try all target type systems
-        for (TypeSystemFacade ts2 : targetTypeSystems.values()) {
-            Table resolved = ts2.resolveClass(className);
+        // Fallback: try all output type systems
+        for (OutputBinding binding : modelRegistry.outputsById().values()) {
+            Table resolved = binding.typeSystem().resolveClass(className);
             if (resolved != null) return resolved;
         }
         return null;
     }
 
-    private TypeSystemFacade targetTypeSystem(String outputId,
-                                               Map<String, String> outputModelById,
-                                               Map<String, TypeSystemFacade> targetTypeSystems) {
-        String modelName = outputId != null ? outputModelById.get(outputId) : null;
-        if (modelName != null) return targetTypeSystems.get(modelName);
-        return targetTypeSystems.values().stream().findFirst().orElse(null);
-    }
-
     // -- Helpers -----------------------------------------------------------
 
-    private Map<String, String> buildInputModelMap(JobConfig config) {
-        Map<String, String> map = new HashMap<>();
-        for (JobConfig.InputSpec input : config.job.inputs) {
-            if (input.id != null && input.model != null) {
-                map.put(input.id, input.model);
-            }
-        }
-        return map;
-    }
-
-    private Map<String, String> buildOutputModelMap(JobConfig config) {
-        Map<String, String> map = new HashMap<>();
-        for (JobConfig.OutputSpec output : config.job.outputs) {
-            if (output.id != null && output.model != null) {
-                map.put(output.id, output.model);
-            }
-        }
-        return map;
+    private static FailPolicy parseFailPolicy(String failPolicy) {
+        if (failPolicy == null) return FailPolicy.STRICT;
+        if (failPolicy.equalsIgnoreCase("lenient")) return FailPolicy.LENIENT;
+        if (failPolicy.equalsIgnoreCase("report_only") || failPolicy.equalsIgnoreCase("reportOnly")) return FailPolicy.REPORT_ONLY;
+        return FailPolicy.STRICT;
     }
 
     // -- Structural validation (unchanged from Phase 1) --------------------

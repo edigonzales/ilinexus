@@ -5,20 +5,20 @@ import ch.interlis.iox.IoxReader;
 import ch.interlis.iox.IoxWriter;
 import guru.interlis.transformer.diag.Diagnostic;
 import guru.interlis.transformer.diag.DiagnosticCollector;
-import guru.interlis.transformer.diag.Severity;
 import guru.interlis.transformer.engine.TransformResult;
 import guru.interlis.transformer.engine.TransformationEngine;
 import guru.interlis.transformer.expr.ExpressionEngine;
 import guru.interlis.transformer.interlis.InterlisIoFactory;
-import guru.interlis.transformer.interlis.InterlisModelLoader;
 import guru.interlis.transformer.mapping.compiler.CompilerReport;
 import guru.interlis.transformer.mapping.compiler.MappingCompiler;
 import guru.interlis.transformer.mapping.compiler.MappingCompiler.CompileResult;
 import guru.interlis.transformer.mapping.model.JobConfig;
 import guru.interlis.transformer.mapping.model.MappingLoader;
+import guru.interlis.transformer.mapping.plan.OutputBinding;
 import guru.interlis.transformer.mapping.plan.TransformPlan;
-import guru.interlis.transformer.model.TypeSystemFacade;
+import guru.interlis.transformer.model.ModelRegistry;
 import guru.interlis.transformer.state.InMemoryStateStore;
+
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -31,44 +31,34 @@ public final class JobRunner {
         return new MappingCompiler().compile(config);
     }
 
-    public DiagnosticCollector run(Path configPath, String modelDir) throws Exception {
+    public PreparedJob prepare(Path mappingFile, RunOptions options) throws Exception {
+        Path baseDirectory = mappingFile.toAbsolutePath().getParent();
         MappingLoader loader = new MappingLoader();
-        JobConfig config = loader.load(configPath);
+        JobConfig config = loader.load(mappingFile);
 
-        // Compile models
-        InterlisModelLoader modelLoader = new InterlisModelLoader();
-        Map<String, TransferDescription> tdByModel = new HashMap<>();
-        for (JobConfig.InputSpec input : config.job.inputs) {
-            tdByModel.computeIfAbsent(input.model, m -> loadModel(modelLoader, m, modelDir));
-        }
-        for (JobConfig.OutputSpec output : config.job.outputs) {
-            tdByModel.computeIfAbsent(output.model, m -> loadModel(modelLoader, m, modelDir));
-        }
+        ModelRegistry modelRegistry = ModelRegistry.builder()
+                .config(config)
+                .modelDirs(config.job.modeldir)
+                .modelDirs(options.modelDirs)
+                .baseDirectory(baseDirectory)
+                .build();
 
-        // Build TypeSystemFacades
-        Map<String, TypeSystemFacade> sourceTypeSystems = new HashMap<>();
-        Map<String, TypeSystemFacade> targetTypeSystems = new HashMap<>();
-        for (JobConfig.InputSpec input : config.job.inputs) {
-            TransferDescription td = tdByModel.get(input.model);
-            if (td != null) {
-                sourceTypeSystems.putIfAbsent(input.model, new TypeSystemFacade(td));
-            }
-        }
-        for (JobConfig.OutputSpec output : config.job.outputs) {
-            TransferDescription td = tdByModel.get(output.model);
-            if (td != null) {
-                targetTypeSystems.putIfAbsent(output.model, new TypeSystemFacade(td));
-            }
-        }
+        TransformPlan plan = new MappingCompiler().compileTyped(config, modelRegistry);
 
-        // Compile mapping (Phase 3 typed compilation)
-        MappingCompiler compiler = new MappingCompiler();
-        TransformPlan plan = compiler.compileTyped(config, sourceTypeSystems, targetTypeSystems);
+        return new PreparedJob(config, plan, modelRegistry, baseDirectory);
+    }
+
+    public DiagnosticCollector run(Path configPath, String modelDir) throws Exception {
+        RunOptions options = new RunOptions();
+        if (modelDir != null && !modelDir.isBlank()) {
+            options.modelDirs.add(modelDir);
+        }
+        PreparedJob prepared = prepare(configPath, options);
 
         // Print compiler diagnostics
-        if (!plan.diagnostics().all().isEmpty()) {
+        if (!prepared.plan().diagnostics().all().isEmpty()) {
             System.out.println("--- Compiler Diagnostics ---");
-            for (Diagnostic d : plan.diagnostics().all()) {
+            for (Diagnostic d : prepared.plan().diagnostics().all()) {
                 System.out.printf("[%s] %s: %s (rule: %s)%n",
                         d.severity(), d.code(), d.message(),
                         d.sourcePath() != null ? d.sourcePath() : "");
@@ -79,46 +69,40 @@ public final class JobRunner {
             System.out.println();
         }
 
-        if (plan.diagnostics().hasErrors()) {
+        if (prepared.plan().diagnostics().hasErrors()) {
             System.err.println("Compilation failed with errors. Aborting.");
-            return plan.diagnostics();
+            return prepared.plan().diagnostics();
         }
 
-        // Create I/O
+        // Create I/O readers and writers from bindings
         DiagnosticCollector engineDiag = new DiagnosticCollector();
         InterlisIoFactory ioFactory = new InterlisIoFactory();
         Map<String, IoxWriter> writersByOutputId = new HashMap<>();
-        for (JobConfig.OutputSpec output : config.job.outputs) {
-            writersByOutputId.put(output.id,
-                    ioFactory.createWriter(Path.of(output.path), tdByModel.get(output.model), engineDiag));
+        for (var entry : prepared.plan().outputsById().entrySet()) {
+            String outputId = entry.getKey();
+            OutputBinding binding = entry.getValue();
+            writersByOutputId.put(outputId,
+                    ioFactory.createWriter(binding.path(), binding.transferDescription(), engineDiag));
         }
 
-        // Build reader factory
         Map<String, IoxReader> readerByInputId = new HashMap<>();
-        for (JobConfig.InputSpec input : config.job.inputs) {
-            readerByInputId.put(input.id,
-                    ioFactory.createReader(Path.of(input.path), tdByModel.get(input.model)));
+        for (var entry : prepared.plan().inputsById().entrySet()) {
+            String inputId = entry.getKey();
+            var binding = entry.getValue();
+            readerByInputId.put(inputId,
+                    ioFactory.createReader(binding.path(), binding.transferDescription()));
         }
 
         TransformationEngine engine = new TransformationEngine(new ExpressionEngine(),
                 new InMemoryStateStore(), engineDiag);
-        TransformResult result = engine.runTyped(plan, readerByInputId::get, writersByOutputId);
+        TransformResult result = engine.runTyped(prepared.plan(), readerByInputId::get, writersByOutputId);
 
-        // Merge engine diagnostics into compiler diagnostics
         for (Diagnostic d : engineDiag.all()) {
-            plan.diagnostics().add(d);
+            prepared.plan().diagnostics().add(d);
         }
 
         System.out.println(result.summary());
 
-        return plan.diagnostics();
-    }
-
-    private TransferDescription loadModel(InterlisModelLoader modelLoader, String modelName, String modelDir) {
-        try {
-            return modelLoader.compileModel(modelName, modelDir);
-        } catch (Exception ex) {
-            throw new RuntimeException("Failed to compile model " + modelName, ex);
-        }
+        return prepared.plan().diagnostics();
     }
 }

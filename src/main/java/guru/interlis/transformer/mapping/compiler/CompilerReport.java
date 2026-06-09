@@ -121,7 +121,7 @@ public final class CompilerReport {
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("name", plan.name());
         report.put("direction", plan.direction());
-        report.put("failPolicy", plan.failPolicy());
+        report.put("failPolicy", plan.failPolicy().name().toLowerCase());
 
         List<Map<String, Object>> ruleMaps = new ArrayList<>();
         for (RulePlan rp : plan.rules()) {

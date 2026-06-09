@@ -161,7 +161,7 @@ class ReferenceResolutionIntegrationTest {
         Map<String, TypeSystemFacade> tsMap = Map.of("P7Model", p7Ts);
         TransformPlan plan = new MappingCompiler().compileTyped(config, tsMap, tsMap);
         assertThat(plan.diagnostics().hasErrors()).isFalse();
-        assertThat(plan.failPolicy()).isEqualTo("strict");
+        assertThat(plan.failPolicy()).isEqualTo(guru.interlis.transformer.mapping.plan.FailPolicy.STRICT);
 
         Iom_jObject srcA = new Iom_jObject("P7Model.P7Topic.ClassA", "a1");
         srcA.setattrvalue("Name", "SourceA");
@@ -193,7 +193,7 @@ class ReferenceResolutionIntegrationTest {
         Map<String, TypeSystemFacade> tsMap = Map.of("P7Model", p7Ts);
         TransformPlan plan = new MappingCompiler().compileTyped(config, tsMap, tsMap);
         assertThat(plan.diagnostics().hasErrors()).isFalse();
-        assertThat(plan.failPolicy()).isEqualTo("lenient");
+        assertThat(plan.failPolicy()).isEqualTo(guru.interlis.transformer.mapping.plan.FailPolicy.LENIENT);
 
         Iom_jObject srcA = new Iom_jObject("P7Model.P7Topic.ClassA", "a1");
         srcA.setattrvalue("Name", "SourceA");

@@ -80,7 +80,7 @@ class DmavToDm01Lfp3IntegrationTest {
         assertThat(plan.diagnostics().hasErrors()).isFalse();
         assertThat(plan.rules()).hasSize(2);
         assertThat(plan.enumMaps()).containsKeys("Zuverlaessigkeit_DMAV_DM01", "Versicherungsart_DMAV_DM01");
-        assertThat(plan.oidStrategy().name()).isEqualTo("INTEGER");
+        assertThat(plan.oidPlan().defaultStrategy().name()).isEqualTo("INTEGER");
     }
 
     @Test
@@ -241,7 +241,7 @@ class DmavToDm01Lfp3IntegrationTest {
         Map<String, TypeSystemFacade> targetTs = Map.of("Dm01TestModel", dm01Ts);
         TransformPlan plan = new MappingCompiler().compileTyped(config, sourceTs, targetTs);
         assertThat(plan.diagnostics().hasErrors()).isFalse();
-        assertThat(plan.oidStrategy().name()).isEqualTo("INTEGER");
+        assertThat(plan.oidPlan().defaultStrategy().name()).isEqualTo("INTEGER");
 
         Iom_jObject nf = new Iom_jObject("DmavTestModel.Fixpunkte.LFP3Nachfuehrung", "uuid-nf-1");
         nf.setattrvalue("NBIdent", "NF001");

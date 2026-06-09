@@ -31,6 +31,9 @@ import guru.interlis.transformer.geometry.IoxGeometryAdapter;
 import guru.interlis.transformer.mapping.model.JobConfig;
 import guru.interlis.transformer.mapping.plan.AssignmentPlan;
 import guru.interlis.transformer.mapping.plan.BagPlan;
+import guru.interlis.transformer.mapping.plan.FailPolicy;
+import guru.interlis.transformer.mapping.plan.InputBinding;
+import guru.interlis.transformer.mapping.plan.OutputBinding;
 import guru.interlis.transformer.mapping.plan.RulePlan;
 import guru.interlis.transformer.mapping.plan.SourcePlan;
 import guru.interlis.transformer.mapping.plan.TransformPlan;
@@ -125,8 +128,8 @@ public final class TransformationEngine {
         }
         return new TransformResult(sourceRecordsRead, sourceRecordsFiltered,
                 targetsCreated, targetsWritten, engineErrors, engineWarnings,
-                plan != null ? plan.oidStrategy().name() : "integer",
-                plan != null ? plan.basketStrategy().name() : "preserve");
+                plan != null ? plan.oidPlan().defaultStrategy().name() : "integer",
+                plan != null ? plan.basketPlan().defaultStrategy().name() : "preserve");
     }
 
     // -- Pass 1: Source Scan / Indexing ------------------------------------
@@ -236,7 +239,7 @@ public final class TransformationEngine {
                         rule.identitySourceKeys(), record.sourceObject(), matchedSource.alias());
                 String sourceOid = record.sourceObject().getobjectoid();
                 String targetOid = stateStore.nextOid(
-                        plan.oidStrategy(), plan.oidNamespace(), rule.ruleId(),
+                        plan.oidPlan().defaultStrategy(), plan.oidPlan().namespace(), rule.ruleId(),
                         sourceOid, identityKeyValues);
                 if (targetOid == null) {
                     targetOid = Long.toString(oldNextOid());
@@ -247,7 +250,8 @@ public final class TransformationEngine {
                         targetOid);
                 targetsCreated++;
 
-                TypeSystemFacade targetTs = plan.targetTypeSystems().get(rule.outputId());
+                OutputBinding outputBinding = plan.outputsById().get(rule.outputId());
+                TypeSystemFacade targetTs = outputBinding != null ? outputBinding.typeSystem() : null;
 
                 for (AssignmentPlan ap : rule.assignments()) {
                     Value value = expressionEngine.evaluate(ap.expression(), evalCtx);
@@ -306,7 +310,7 @@ public final class TransformationEngine {
 
                 String targetTopic = extractTopic(getScopedName(rule.targetClass()));
                 String targetBasketId = BasketRouter.determineTargetBasket(
-                        plan.basketStrategy(), record.sourceBasketId(), targetTopic,
+                        plan.basketPlan().defaultStrategy(), record.sourceBasketId(), targetTopic,
                         getScopedName(rule.targetClass()));
                 String basketKey = basketKey(targetTopic, targetBasketId);
                 objectsByOutputAndBasket
@@ -520,12 +524,13 @@ public final class TransformationEngine {
 
     private void checkRequiredRefs(TransformPlan plan) {
         if (plan == null) return;
-        TypeSystemFacade targetTs = plan.targetTypeSystems().values().stream().findFirst().orElse(null);
         for (RulePlan rule : plan.rules()) {
+            OutputBinding outputBinding = plan.outputsById().get(rule.outputId());
+            TypeSystemFacade targetTs = outputBinding != null ? outputBinding.typeSystem() : null;
+            if (targetTs == null) continue;
             String targetClassScoped = getScopedName(rule.targetClass());
             for (var ref : rule.refs()) {
                 if (!ref.required()) continue;
-                if (targetTs == null) continue;
                 RoleResolver roleResolver = new RoleResolver(targetTs);
                 long minCardinality = roleResolver.getTargetRoleCardinality(ref, targetClassScoped).min();
                 if (minCardinality <= 0) continue;
@@ -631,7 +636,7 @@ public final class TransformationEngine {
             if (structure == null) continue;
 
             String targetOid = stateStore.nextOid(
-                    plan.oidStrategy(), plan.oidNamespace(), rule.ruleId(),
+                    plan.oidPlan().defaultStrategy(), plan.oidPlan().namespace(), rule.ruleId(),
                     parentObj.getobjectoid() + "-" + i,
                     Map.of());
             if (targetOid == null) {
@@ -658,7 +663,7 @@ public final class TransformationEngine {
 
             String targetTopic = extractTopic(bag.structureName());
             String targetBasketId = BasketRouter.determineTargetBasket(
-                    plan.basketStrategy(), parentRecord.sourceBasketId(), targetTopic,
+                    plan.basketPlan().defaultStrategy(), parentRecord.sourceBasketId(), targetTopic,
                     bag.structureName());
             String basketKey = basketKey(targetTopic, targetBasketId);
             expandedTargets
@@ -714,7 +719,7 @@ public final class TransformationEngine {
 
     private static Severity failPolicySeverity(TransformPlan plan, Severity defaultSeverity) {
         if (plan == null) return defaultSeverity;
-        return "lenient".equals(plan.failPolicy()) ? Severity.WARNING : defaultSeverity;
+        return plan.failPolicy() == FailPolicy.LENIENT ? Severity.WARNING : defaultSeverity;
     }
 
     private String readSourceReferenceOid(IomObject source, String roleName) {
@@ -827,16 +832,14 @@ public final class TransformationEngine {
             for (SourcePlan sp : rule.sources()) {
                 if (sp.sourceClass() == null) continue;
                 String alias = sp.alias();
-                String sourceModel = null;
+                TypeSystemFacade sourceTs = null;
                 for (String inputId : sp.inputIds()) {
-                    for (var entry : plan.sourceTypeSystems().entrySet()) {
-                        if (entry.getKey() != null) {
-                            sourceModel = entry.getKey();
-                            break;
-                        }
+                    InputBinding binding = plan.inputsById().get(inputId);
+                    if (binding != null && binding.typeSystem() != null) {
+                        sourceTs = binding.typeSystem();
+                        break;
                     }
                 }
-                TypeSystemFacade sourceTs = sourceModel != null ? plan.sourceTypeSystems().get(sourceModel) : null;
                 if (sourceTs == null) continue;
 
                 Map<String, TypeInfo> aliasTypes = new LinkedHashMap<>();
