@@ -14,6 +14,10 @@ public interface StateStore {
 
     List<DeferredRef> deferredRefs();
 
+    void addDeferredReference(DeferredReference ref);
+
+    List<DeferredReference> deferredReferences();
+
     void addSourceRecord(SourceRecord sourceRecord);
 
     List<SourceRecord> sourceRecords();

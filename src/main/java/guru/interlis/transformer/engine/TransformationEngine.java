@@ -44,14 +44,19 @@ import guru.interlis.transformer.state.BasketStrategy;
 import guru.interlis.transformer.state.CanonicalValue;
 import guru.interlis.transformer.state.DefaultOidGenerationService;
 import guru.interlis.transformer.state.DeferredRef;
+import guru.interlis.transformer.state.DeferredReference;
 import guru.interlis.transformer.state.DuplicateTargetOidException;
 import guru.interlis.transformer.state.OidGenerationRequest;
 import guru.interlis.transformer.state.OidGenerationService;
 import guru.interlis.transformer.state.OidStrategy;
+import guru.interlis.transformer.state.ReferenceIndex;
+import guru.interlis.transformer.state.SourceObjectKey;
 import guru.interlis.transformer.state.SourceRecord;
 import guru.interlis.transformer.state.SourceRefKey;
+import guru.interlis.transformer.state.SourceReferenceSelector;
 import guru.interlis.transformer.state.StateStore;
 import guru.interlis.transformer.state.TargetObjectKey;
+import guru.interlis.transformer.state.TargetReference;
 import guru.interlis.transformer.state.TargetRefValue;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -69,24 +74,37 @@ public final class TransformationEngine {
     private final DiagnosticCollector diagnostics;
     private final GeometryAdapter geometryAdapter;
     private final OidGenerationService oidGenerationService;
+    private final ReferenceIndex referenceIndex;
+    private final ReferenceResolutionService referenceResolutionService;
 
     public TransformationEngine(ExpressionEngine expressionEngine, StateStore stateStore, DiagnosticCollector diagnostics) {
-        this(expressionEngine, stateStore, diagnostics, new IoxGeometryAdapter(), new DefaultOidGenerationService());
+        this(expressionEngine, stateStore, diagnostics, new IoxGeometryAdapter(), new DefaultOidGenerationService(),
+                null);
     }
 
     public TransformationEngine(ExpressionEngine expressionEngine, StateStore stateStore,
                                  DiagnosticCollector diagnostics, GeometryAdapter geometryAdapter) {
-        this(expressionEngine, stateStore, diagnostics, geometryAdapter, new DefaultOidGenerationService());
+        this(expressionEngine, stateStore, diagnostics, geometryAdapter, new DefaultOidGenerationService(),
+                null);
     }
 
     public TransformationEngine(ExpressionEngine expressionEngine, StateStore stateStore,
                                  DiagnosticCollector diagnostics, GeometryAdapter geometryAdapter,
                                  OidGenerationService oidGenerationService) {
+        this(expressionEngine, stateStore, diagnostics, geometryAdapter, oidGenerationService, null);
+    }
+
+    public TransformationEngine(ExpressionEngine expressionEngine, StateStore stateStore,
+                                 DiagnosticCollector diagnostics, GeometryAdapter geometryAdapter,
+                                 OidGenerationService oidGenerationService,
+                                 ReferenceIndex referenceIndex) {
         this.expressionEngine = expressionEngine;
         this.stateStore = stateStore;
         this.diagnostics = diagnostics;
         this.geometryAdapter = geometryAdapter;
         this.oidGenerationService = oidGenerationService;
+        this.referenceIndex = referenceIndex;
+        this.referenceResolutionService = referenceIndex != null ? new ReferenceResolutionService() : null;
     }
 
     // Counters for summary
@@ -120,8 +138,12 @@ public final class TransformationEngine {
         resetCounters();
         pass1Index(plan, readerFactoryById);
         Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket = pass2BuildTargets(plan);
-        resolveDeferredRefs(plan);
-        checkRequiredRefs(plan);
+        if (referenceResolutionService != null && referenceIndex != null) {
+            referenceResolutionService.resolveAll(plan, stateStore, referenceIndex, diagnostics);
+        } else {
+            resolveDeferredRefs(plan);
+            checkRequiredRefs(plan);
+        }
         targetsWritten = writeOutputs(plan, writersByOutputId, objectsByOutputAndBasket);
         return buildResult(plan);
     }
@@ -322,6 +344,35 @@ public final class TransformationEngine {
                                 record.sourceBasketId(),
                                 expectedTargetClass
                         ));
+
+                        if (referenceIndex != null) {
+                            var roleCard = roleResolver != null
+                                    ? roleResolver.getTargetRoleCardinality(ref, getScopedName(rule.targetClass()))
+                                    : null;
+                            String associationName = roleResolver != null
+                                    ? roleResolver.getAssociationName(ref, getScopedName(rule.targetClass()))
+                                    : null;
+                            var refInfo = resolveReferencedSourceInfo(
+                                    ref.targetRuleId(), plan);
+                            stateStore.addDeferredReference(new DeferredReference(
+                                    new TargetObjectKey(rule.outputId(), getScopedName(rule.targetClass()),
+                                            target.getobjectoid()),
+                                    ref.targetRoleName(),
+                                    associationName,
+                                    new SourceReferenceSelector(
+                                            refInfo.inputId(),
+                                            refInfo.basketId() != null ? refInfo.basketId()
+                                                    : record.sourceBasketId(),
+                                            refInfo.expectedSourceClass(),
+                                            sourceRefOid),
+                                    ref.targetRuleId(),
+                                    expectedTargetClass,
+                                    roleCard != null
+                                            ? new DeferredReference.Cardinality(roleCard.min(), roleCard.max())
+                                            : new DeferredReference.Cardinality(0, DeferredReference.Cardinality.UNBOUND),
+                                    ref.required()
+                            ));
+                        }
                     }
                 }
 
@@ -342,6 +393,20 @@ public final class TransformationEngine {
                         new TargetRefValue(getScopedName(rule.targetClass()), target.getobjectoid(),
                                 rule.outputId(), record.sourceBasketId())
                 );
+
+                if (referenceIndex != null) {
+                    referenceIndex.add(
+                            new SourceObjectKey(
+                                    record.sourceFileId(),
+                                    record.sourceBasketId(),
+                                    record.sourceClass(),
+                                    record.sourceObject().getobjectoid()),
+                            new TargetReference(
+                                    rule.outputId(),
+                                    getScopedName(rule.targetClass()),
+                                    target.getobjectoid(),
+                                    rule.ruleId()));
+                }
                 try {
                     stateStore.registerTarget(
                             new TargetObjectKey(rule.outputId(), getScopedName(rule.targetClass()), target.getobjectoid()),
@@ -981,6 +1046,24 @@ public final class TransformationEngine {
         if (binding == null || binding.typeSystem() == null) return null;
         return binding.typeSystem().getOidType(getScopedName(rule.targetClass()));
     }
+
+    private static ReferenceSourceInfo resolveReferencedSourceInfo(String targetRuleId, TransformPlan plan) {
+        if (targetRuleId == null || plan == null) return new ReferenceSourceInfo(null, null, null);
+        for (RulePlan rp : plan.rules()) {
+            if (targetRuleId.equals(rp.ruleId())) {
+                if (!rp.sources().isEmpty()) {
+                    SourcePlan sp = rp.sources().get(0);
+                    String inputId = !sp.inputIds().isEmpty() ? sp.inputIds().iterator().next() : null;
+                    String sourceClass = sp.sourceClass() != null
+                            ? TypeSystemFacade.getScopedName(sp.sourceClass()) : null;
+                    return new ReferenceSourceInfo(inputId, null, sourceClass);
+                }
+            }
+        }
+        return new ReferenceSourceInfo(null, null, null);
+    }
+
+    private record ReferenceSourceInfo(String inputId, String basketId, String expectedSourceClass) {}
 
     private long oldNextOid() {
         return stateStore.nextOid();

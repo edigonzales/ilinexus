@@ -14,6 +14,7 @@ public final class InMemoryStateStore implements StateStore {
     private final Map<SourceRefKey, List<TargetRefValue>> idMap = new HashMap<>();
     private final Map<String, List<IomObject>> sourceIndex = new HashMap<>();
     private final List<DeferredRef> deferredRefs = new ArrayList<>();
+    private final List<DeferredReference> deferredReferences = new ArrayList<>();
     private final List<SourceRecord> sourceRecords = new ArrayList<>();
     private final Map<String, IomObject> targetIndex = new HashMap<>();
     private final AtomicLong oidSequence = new AtomicLong();
@@ -44,6 +45,16 @@ public final class InMemoryStateStore implements StateStore {
     @Override
     public List<DeferredRef> deferredRefs() {
         return List.copyOf(deferredRefs);
+    }
+
+    @Override
+    public void addDeferredReference(DeferredReference ref) {
+        deferredReferences.add(ref);
+    }
+
+    @Override
+    public List<DeferredReference> deferredReferences() {
+        return List.copyOf(deferredReferences);
     }
 
     @Override

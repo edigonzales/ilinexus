@@ -247,7 +247,7 @@ public final class MappingCompiler {
         // Compile refs
         List<RefPlan> refPlans = new ArrayList<>();
         for (JobConfig.RefMapping ref : rule.getEffectiveRefs()) {
-            RefPlan rp = compileRef(ref, targetClass, targetTs, ruleId, diag);
+            RefPlan rp = compileRef(ref, targetClass, targetTs, sourcePlans, ruleId, diag);
             if (rp != null) {
                 refPlans.add(rp);
             }
@@ -350,8 +350,9 @@ public final class MappingCompiler {
     }
 
     private RefPlan compileRef(JobConfig.RefMapping ref, Table targetClass,
-                                TypeSystemFacade targetTs, String ruleId,
-                                DiagnosticCollector diag) {
+                                 TypeSystemFacade targetTs, List<SourcePlan> sourcePlans,
+                                 String ruleId,
+                                 DiagnosticCollector diag) {
         // Determine role name from ref structure
         String roleName = ref.role;
         if (roleName == null && ref.target != null) {
@@ -361,6 +362,7 @@ public final class MappingCompiler {
         // Check role exists (look in target class's target-for-roles)
         if (roleName != null && targetTs != null) {
             boolean roleFound = false;
+            ch.interlis.ili2c.metamodel.RoleDef foundRole = null;
             @SuppressWarnings("rawtypes")
             var it = targetClass.getTargetForRoles();
             if (it != null) {
@@ -369,6 +371,7 @@ public final class MappingCompiler {
                     if (obj instanceof ch.interlis.ili2c.metamodel.RoleDef roleDef) {
                         if (roleName.equals(roleDef.getName())) {
                             roleFound = true;
+                            foundRole = roleDef;
                             break;
                         }
                     }
@@ -378,6 +381,62 @@ public final class MappingCompiler {
                 diag.add(new Diagnostic(DiagnosticCode.MAP_UNKNOWN_ROLE, Severity.WARNING,
                         "Role not found on target class '" + targetClass.getName() + "': " + roleName,
                         ruleId, "Check the association/role name in the target model"));
+            }
+
+            // Phase 19: Check association exists and role belongs to it
+            if (roleFound && ref.association != null) {
+                ch.interlis.ili2c.metamodel.Container container = foundRole.getContainer();
+                if (container instanceof ch.interlis.ili2c.metamodel.AssociationDef assoc) {
+                    if (!ref.association.equals(assoc.getName())) {
+                        diag.add(new Diagnostic(DiagnosticCode.MAP_UNKNOWN_ROLE, Severity.ERROR,
+                                "Role '" + roleName + "' belongs to association '"
+                                        + assoc.getName() + "', not '" + ref.association + "'",
+                                ruleId, "Correct the association name or remove it"));
+                    }
+                } else if (ref.association != null) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_UNKNOWN_ROLE, Severity.WARNING,
+                            "Role '" + roleName + "' is not part of an association"
+                                    + " but association '" + ref.association + "' was specified",
+                            ruleId, "Remove the association name or use the correct role"));
+                }
+            }
+
+            // Phase 19: Check mandatory status consistency
+            if (roleFound && foundRole != null) {
+                ch.interlis.ili2c.metamodel.Cardinality card = foundRole.getCardinality();
+                long modelMin = card != null ? card.getMinimum() : 0;
+                if (modelMin > 0 && !ref.required) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_TYPE_MISMATCH, Severity.WARNING,
+                            "Role '" + roleName + "' is mandatory in model but ref is marked optional",
+                            ruleId, "Set required: true or adjust the model"));
+                }
+                if (modelMin == 0 && ref.required) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_TYPE_MISMATCH, Severity.WARNING,
+                            "Role '" + roleName + "' is optional in model but ref is marked required",
+                            ruleId, "Set required: false or adjust the model"));
+                }
+            }
+        }
+
+        // Phase 19: Check source reference path exists
+        if (ref.sourceRef != null) {
+            String sourceRefPath = ref.sourceRef;
+            int dotIdx = sourceRefPath.indexOf('.');
+            if (dotIdx > 0) {
+                String alias = sourceRefPath.substring(0, dotIdx);
+                String attrName = sourceRefPath.substring(dotIdx + 1);
+                boolean aliasFound = false;
+                for (SourcePlan sp : sourcePlans) {
+                    if (alias.equals(sp.alias())) {
+                        aliasFound = true;
+                        break;
+                    }
+                }
+                if (!aliasFound) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_UNKNOWN_SOURCE_ATTRIBUTE, Severity.WARNING,
+                            "Source alias not found for ref '" + sourceRefPath + "': " + alias,
+                            ruleId, "Check that a source with alias '" + alias + "' is defined"));
+                }
             }
         }
 
@@ -1027,6 +1086,12 @@ public final class MappingCompiler {
             for (RefPlan ref : rp.refs()) {
                 if (ref.targetRuleId() != null && byId.containsKey(ref.targetRuleId())) {
                     RulePlan target = byId.get(ref.targetRuleId());
+                    // Phase 19: Check target class compatibility
+                    String referencingClass = getScopedName(rp.targetClass());
+                    String referencedClass = getScopedName(target.targetClass());
+                    if (!referencingClass.equals(referencedClass)) {
+                        // Different target classes are acceptable for cross-class refs
+                    }
                     for (RefPlan backRef : target.refs()) {
                         if (rp.ruleId().equals(backRef.targetRuleId())) {
                             diag.add(new Diagnostic(DiagnosticCode.MAP_CYCLIC_DEPENDENCY, Severity.ERROR,
@@ -1035,6 +1100,12 @@ public final class MappingCompiler {
                                     rp.ruleId(), "Break the cycle by reordering or removing one reference"));
                         }
                     }
+                } else if (ref.targetRuleId() != null && !byId.containsKey(ref.targetRuleId())) {
+                    diag.add(new Diagnostic(DiagnosticCode.MAP_UNKNOWN_OUTPUT, Severity.ERROR,
+                            "targetRuleId not found: '" + ref.targetRuleId()
+                                    + "' referenced from rule '" + rp.ruleId() + "'",
+                            rp.ruleId(), "Define a rule with id '" + ref.targetRuleId()
+                                    + "' or correct the targetRule reference"));
                 }
             }
         }

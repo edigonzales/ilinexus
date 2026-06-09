@@ -148,6 +148,22 @@ public final class FeatureMatrix {
                 "DeferredRefs, type checking, cardinality, role-aware resolution",
                 "ReferenceResolutionIntegrationTest"));
 
+        entries.add(FeatureEntry.of("ReferenceIndex + ReferenceResolutionService", "19",
+                FeatureStatus.SUPPORTED,
+                "Separate ReferenceIndex with SourceObjectKey/TargetReference; ReferenceResolutionService with per-owner cardinality, ambiguity detection, association-aware diagnostics",
+                "ReferenceIndexTest", "ReferenceResolutionServiceTest"));
+
+        entries.add(FeatureEntry.of("Same OID different context resolution", "19",
+                FeatureStatus.SUPPORTED,
+                "Same OID in different baskets/inputs/classes correctly disambiguated; no global OID-only fallback by default",
+                "SameOidDifferentBasketTest", "SameOidDifferentInputTest",
+                "SameOidDifferentClassTest"));
+
+        entries.add(FeatureEntry.of("Association-aware role resolution", "19",
+                FeatureStatus.SUPPORTED,
+                "requireRole() with AssociationDef; association name in diagnostics; XTF association serialization tested with ilivalidator",
+                "AssociationXtfIntegrationTest"));
+
         entries.add(FeatureEntry.of("failPolicy (strict/lenient/reportOnly)", "7",
                 FeatureStatus.SUPPORTED,
                 "Configurable error handling at plan level",
