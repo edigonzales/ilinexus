@@ -81,6 +81,22 @@ mapping:
           assign:
             Nummer: "gn.Nummer"
             GWR_EGID: "b.EGID"
+          nestedBags:
+            Textposition:
+              mode: expand
+              structure: "DM01AVCH24LV95D.Bodenbedeckung.GebaeudenummerPos"
+              from:
+                input: dmav
+                alias: gnp
+                class: "DMAVTYM_Grafik_V1_0.Textposition"
+              parentRef:
+                role: GebaeudenummerPos_von
+              assign:
+                Pos: "gnp.Position"
+                Ori: "coalesce(gnp.Orientierung, 100.0)"
+                HAli: "coalesce(gnp.HReferenzpunkt, 'Center')"
+                VAli: "coalesce(gnp.VReferenzpunkt, 'Half')"
+                Groesse: "coalesce(gnp.Textgroesse, 'mittel')"
         Objektname:
           mode: expand
           structure: "DM01AVCH24LV95D.Bodenbedeckung.Objektname"
@@ -92,6 +108,22 @@ mapping:
             role: Objektname_von
           assign:
             Name: "onItem.Name"
+          nestedBags:
+            Textposition:
+              mode: expand
+              structure: "DM01AVCH24LV95D.Bodenbedeckung.ObjektnamePos"
+              from:
+                input: dmav
+                alias: onp
+                class: "DMAVTYM_Grafik_V1_0.Textposition"
+              parentRef:
+                role: ObjektnamePos_von
+              assign:
+                Pos: "onp.Position"
+                Ori: "coalesce(onp.Orientierung, 100.0)"
+                HAli: "coalesce(onp.HReferenzpunkt, 'Center')"
+                VAli: "coalesce(onp.VReferenzpunkt, 'Half')"
+                Groesse: "coalesce(onp.Textgroesse, 'mittel')"
         Symbolposition:
           mode: expand
           structure: "DM01AVCH24LV95D.Bodenbedeckung.BoFlaecheSymbol"

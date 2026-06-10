@@ -1230,6 +1230,7 @@ public final class MappingCompiler {
             if (bagSpec.nestedBags != null && !bagSpec.nestedBags.isEmpty()) {
                 JobConfig.RuleSpec nestedRule = new JobConfig.RuleSpec();
                 nestedRule.id = ruleId + "-nested-" + bagAttrName;
+                nestedRule.output = rule.getEffectiveTargetOutput();
                 nestedRule.bags = bagSpec.nestedBags;
                 nestedBagPlans = compileBags(nestedRule, sourcePlans, sourcesByAlias,
                         componentTable, targetTs, ruleId, modelRegistry, enumMaps, diag);
