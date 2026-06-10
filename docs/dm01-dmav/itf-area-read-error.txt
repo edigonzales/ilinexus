@@ -1,0 +1,49 @@
+====================================================================
+ITF AREA Polygon Read Error Report
+====================================================================
+Generated: Wed Jun 10 16:29:57 CEST 2026
+Source: SURFACE→AREA conversion in DM01 ITF reverse transform output
+  Forward:  DM01-AV-CH.itf → dmav-bb.xtf (DMAV_Bodenbedeckung_V1_1)
+  Reverse:  dmav-bb.xtf → dm01-roundtrip.itf (DM01AVCH24LV95D)
+====================================================================
+
+--- Root Cause ---
+ItfReader2.parseArea() fails with 'failed to build polygons' when
+reading SURFACE geometries that were converted from XTF SURFACE to
+ITF AREA format during the reverse transform.
+
+The issue is in ch.interlis.iom_j.itf.ItfReader2 (line ~216), which
+requires valid polygon topology (closed rings, proper nesting).
+The SURFACE→AREA adapter produces geometries that are structurally
+valid for writing but fail the reader's polygon validation.
+
+--- Reproduction Steps ---
+1. Forward:  DM01→DMAV via profiles/dm01-to-dmav/1.1/bb.yaml
+2. Reverse:  DMAV→DM01 via profiles/dmav-to-dm01/1.1/bb.yaml
+3. Read:     ItfReader2 on reverse output → IoxInvalidDataException
+
+--- Error Details ---
+Exception: ch.interlis.iox_j.IoxInvalidDataException
+Message:   failed to build polygons
+          of DM01AVCH24LV95D.Bodenbedeckung.BoFlaeche.Geometrie
+
+Stack trace (ItfReader2.read → ItfReader2.parseArea):
+  at ch.interlis.iom_j.itf.ItfReader2.read(ItfReader2.java:216)
+  at guru.interlis.transformer.interlis.InterlisIoFactory$EndTransferAwareReader.read(InterlisIoFactory.java:68)
+
+--- Impact ---
+• Writer works correctly — the ITF file is produced without errors
+• Reader fails on polygon assembly — affects re-reading roundtrip ITF
+• DM01 importers (ilivalidator) may handle AREA differently
+• Pilot impact: ITF output is valid for downstream DM01 tools,
+  but roundtrip read-back in tests is blocked
+
+--- Diagnostic Test ---
+src/realDataTest/java/guru/interlis/transformer/ItfAreaReadDiagnosticTest.java
+  Test reproduces the error and writes details to temp file
+
+--- Relevant Files ---
+Class:   ch.interlis.iom_j.itf.ItfReader2 (dependency, not source)
+Mapping: profiles/dmav-to-dm01/1.1/bb.yaml (assign: Geometrie: b.Geometrie)
+Output:  build/out/dm01-bb.itf (1930442 bytes for current test data)
+
