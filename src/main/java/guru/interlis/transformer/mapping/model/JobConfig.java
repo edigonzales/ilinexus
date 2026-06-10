@@ -260,6 +260,8 @@ public final class JobConfig {
         public Integer maxItems;
         @JsonProperty("parentRef")
         public BagParentRef parentRef;
+        @JsonProperty("nestedBags")
+        public Map<String, BagSpec> nestedBags;
     }
 
     public static final class LossSpec {

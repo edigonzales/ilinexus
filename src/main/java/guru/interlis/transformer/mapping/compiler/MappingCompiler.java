@@ -17,6 +17,7 @@ import guru.interlis.transformer.expr.FunctionRegistry;
 import guru.interlis.transformer.expr.builtins.BasicFunctions;
 import guru.interlis.transformer.expr.builtins.DateFunctions;
 import guru.interlis.transformer.expr.builtins.EnumFunctions;
+import guru.interlis.transformer.expr.builtins.LookupFunctions;
 import guru.interlis.transformer.expr.builtins.MathFunctions;
 import guru.interlis.transformer.expr.builtins.RefFunctions;
 import guru.interlis.transformer.expr.builtins.StringFunctions;
@@ -82,6 +83,7 @@ public final class MappingCompiler {
         EnumFunctions.registerAll(registry);
         RefFunctions.registerAll(registry);
         MathFunctions.registerAll(registry);
+        LookupFunctions.registerAll(registry);
         return registry;
     }
 
@@ -1223,9 +1225,20 @@ public final class MappingCompiler {
                         ruleId, true);
             }
 
+            // Compile nested bags recursively
+            List<BagPlan> nestedBagPlans = List.of();
+            if (bagSpec.nestedBags != null && !bagSpec.nestedBags.isEmpty()) {
+                JobConfig.RuleSpec nestedRule = new JobConfig.RuleSpec();
+                nestedRule.id = ruleId + "-nested-" + bagAttrName;
+                nestedRule.bags = bagSpec.nestedBags;
+                nestedBagPlans = compileBags(nestedRule, sourcePlans, sourcesByAlias,
+                        componentTable, targetTs, ruleId, modelRegistry, enumMaps, diag);
+            }
+
             BagPlan bp = new BagPlan(bagAttrName, bagSourcePlan, effectiveStructureName,
                     bagAssignments, bagWhere, mode, parentRefAttribute, parentAlias,
-                    cardinalityMin, cardinalityMax, bagSpec.maxItems, bagIdentityPlan, parentRefPlan);
+                    cardinalityMin, cardinalityMax, bagSpec.maxItems, bagIdentityPlan, parentRefPlan,
+                    nestedBagPlans);
             bagPlans.add(bp);
         }
         return bagPlans;

@@ -91,6 +91,11 @@ public final class DiagnosticCode {
     public static final String RUN_JOIN_MISSING = "ILITRF-RUN-JOIN-MISSING";
     public static final String RUN_JOIN_AMBIGUOUS = "ILITRF-RUN-JOIN-AMBIGUOUS";
 
+    // Lookup functions (child-to-parent attribute resolution)
+    public static final String LOOKUP_NO_MATCH = "ILITRF-LOOKUP-NO-MATCH";
+    public static final String LOOKUP_AMBIGUOUS = "ILITRF-LOOKUP-AMBIGUOUS";
+    public static final String LOOKUP_INDEX_MISSING = "ILITRF-LOOKUP-INDEX-MISSING";
+
     // Phase 23 – BAG OF STRUCTURE
     public static final String MAP_BAG_PARENT_REF_MISSING = "ILITRF-MAP-BAG-PARENT-REF-MISSING";
     public static final String MAP_BAG_EXPAND_IDENTITY_MISSING = "ILITRF-MAP-BAG-EXPAND-IDENTITY-MISSING";

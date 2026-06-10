@@ -57,26 +57,48 @@ public final class BagTransformationService {
         Iom_jObject target = (Iom_jObject) ctx.target();
         TransformPlan plan = ctx.transformPlan();
 
-        if (bag.fromSource().sourceClass() == null) return;
-
         List<SourceRecord> bagSourceRecords;
+        String bagSourceClass = null;
+        if (bag.fromSource().sourceClass() != null) {
+            bagSourceClass = TypeSystemFacade.getScopedName(bag.fromSource().sourceClass());
+        }
+
         if (bag.hasParentRef()) {
-            String bagSourceClass = TypeSystemFacade.getScopedName(bag.fromSource().sourceClass());
             String parentOid = ctx.parent().sourceRecord().sourceObject().getobjectoid();
-            bagSourceRecords = ctx.parentChildIndex().children(
-                    bagSourceClass, bag.parentRefAttribute(), parentOid);
-            if (bag.fromSource().inputIds() != null && !bag.fromSource().inputIds().isEmpty()) {
-                String inputId = bag.fromSource().inputIds().iterator().next();
-                bagSourceRecords = bagSourceRecords.stream()
-                        .filter(r -> inputId.equals(r.sourceFileId()))
-                        .toList();
+            if (bag.fromSource().sourceClass() != null) {
+                String resolvedSourceClass = TypeSystemFacade.getScopedName(bag.fromSource().sourceClass());
+                bagSourceRecords = ctx.parentChildIndex().children(
+                        resolvedSourceClass, bag.parentRefAttribute(), parentOid);
+                if (bag.fromSource().inputIds() != null && !bag.fromSource().inputIds().isEmpty()) {
+                    String inputId = bag.fromSource().inputIds().iterator().next();
+                    bagSourceRecords = bagSourceRecords.stream()
+                            .filter(r -> inputId.equals(r.sourceFileId()))
+                            .toList();
+                }
+            } else {
+                // Fallback when sourceClass unknown: scan stateStore and filter by parent ref attribute
+                bagSourceRecords = new ArrayList<>();
+                for (SourceRecord sr : ctx.stateStore().sourceRecords()) {
+                    IomObject obj = sr.sourceObject();
+                    if (obj.getattrvaluecount(bag.parentRefAttribute()) <= 0) continue;
+                    IomObject ref = obj.getattrobj(bag.parentRefAttribute(), 0);
+                    if (ref != null && parentOid.equals(ref.getobjectrefoid())) {
+                        boolean inputMatch = bag.fromSource().inputIds().isEmpty()
+                                || bag.fromSource().inputIds().contains(sr.sourceFileId());
+                        if (inputMatch) {
+                            bagSourceRecords.add(sr);
+                        }
+                    }
+                }
             }
         } else {
-            String bagSourceClass = TypeSystemFacade.getScopedName(bag.fromSource().sourceClass());
+            // Fallback: scan stateStore, optionally filtered by sourceClass
             bagSourceRecords = new ArrayList<>();
             for (SourceRecord sr : ctx.stateStore().sourceRecords()) {
-                if (bagSourceClass.equals(sr.sourceClass())
-                        && bag.fromSource().inputIds().contains(sr.sourceFileId())) {
+                boolean classMatch = bagSourceClass == null || bagSourceClass.equals(sr.sourceClass());
+                boolean inputMatch = bag.fromSource().inputIds().isEmpty()
+                        || bag.fromSource().inputIds().contains(sr.sourceFileId());
+                if (classMatch && inputMatch) {
                     bagSourceRecords.add(sr);
                 }
             }
@@ -128,6 +150,28 @@ public final class BagTransformationService {
             }
 
             checkMandatoryAttributes(struct, bag, ctx.diagnostics());
+
+            // Embed nested bags recursively
+            for (BagPlan nestedBag : bag.nestedBags()) {
+                if (nestedBag.isEmbed()) {
+                    BagExecutionContext nestedCtx = new BagExecutionContext(
+                            nestedBag,
+                            new BoundSourceObject(bag.fromSource(), sr),
+                            struct,
+                            ctx.transformPlan(),
+                            ctx.stateStore(),
+                            ctx.parentChildIndex(),
+                            ctx.diagnostics(),
+                            ctx.rule(),
+                            ctx.expandedTargets(),
+                            ctx.geometryAdapter(),
+                            ctx.sourceAttributeTypes(),
+                            ctx.referenceIndex()
+                    );
+                    embed(nestedCtx);
+                }
+            }
+
             structures.add(struct);
         }
 

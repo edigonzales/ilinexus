@@ -113,12 +113,12 @@ public final class RuleExecutionService {
             } else {
                 processSingleSourceRule(rule, plan, dispatchIndex, stateStore,
                         objectsByOutputAndBasket, expandedTargets, sourceAttrTypes,
-                        diagnostics, metrics, parentChildIndex);
+                        diagnostics, metrics, parentChildIndex, sourceLookupIndex);
             }
 
             for (CreatePlan create : rule.creates()) {
                 processCreatePlan(create, rule, plan, stateStore,
-                        objectsByOutputAndBasket, sourceAttrTypes, diagnostics, metrics, parentChildIndex);
+                        objectsByOutputAndBasket, sourceAttrTypes, diagnostics, metrics, parentChildIndex, sourceLookupIndex);
             }
         }
 
@@ -141,7 +141,7 @@ public final class RuleExecutionService {
                                           Map<String, Map<String, List<IomObject>>> expandedTargets,
                                           Map<String, Map<String, TypeInfo>> sourceAttrTypes,
                                           DiagnosticCollector diagnostics, ExecutionMetrics metrics,
-                                          ParentChildIndex parentChildIndex) {
+                                          ParentChildIndex parentChildIndex, SourceLookupIndex sourceLookupIndex) {
         TargetObjectFactory.ObjectCreationContext ctx = new TargetObjectFactory.ObjectCreationContext(
                 objectsByOutputAndBasket, expandedTargets, diagnostics, stateStore,
                 referenceIndex, parentChildIndex, metrics, geometryAdapter, sourceAttrTypes);
@@ -157,7 +157,7 @@ public final class RuleExecutionService {
 
                 Map<String, IomObject> sources = Map.of(matchedSource.alias(), record.sourceObject());
                 EvalContext evalCtx = new EvalContext(sources, diagnostics, rule.ruleId(), plan.enumMaps(),
-                        geometryAdapter, sourceAttrTypes);
+                        geometryAdapter, sourceAttrTypes).withLookupIndex(sourceLookupIndex);
 
                 if (!evaluateWhereAndPredicate(matchedSource, rule, evalCtx, expressionEngine, metrics)) continue;
 
@@ -227,7 +227,7 @@ public final class RuleExecutionService {
                     continue;
                 }
                 EvalContext evalCtx = new EvalContext(sources, diagnostics, rule.ruleId(), plan.enumMaps(),
-                        geometryAdapter, sourceAttrTypes);
+                        geometryAdapter, sourceAttrTypes).withLookupIndex(sourceLookupIndex);
                 if (evaluateWhereAndPredicate(leftPlan, rule, evalCtx, expressionEngine, metrics)) {
                     metrics.recordRuleMatch(rule.ruleId());
                     recordLosses(rule, leftRecord, evalCtx);
@@ -252,7 +252,7 @@ public final class RuleExecutionService {
                 joinedSources.put(rightPlan.alias(), rightRecord.sourceObject());
 
                 EvalContext joinCtx = new EvalContext(joinedSources, diagnostics, rule.ruleId(), plan.enumMaps(),
-                        null, sourceAttrTypes);
+                        null, sourceAttrTypes).withLookupIndex(sourceLookupIndex);
 
                 Value joinResult = expressionEngine.evaluate(join.condition(), joinCtx);
                 if (!isFilterTruthy(joinResult)) {
@@ -275,7 +275,7 @@ public final class RuleExecutionService {
                                     Map<String, Map<String, List<IomObject>>> objectsByOutputAndBasket,
                                     Map<String, Map<String, TypeInfo>> sourceAttrTypes,
                                     DiagnosticCollector diagnostics, ExecutionMetrics metrics,
-                                    ParentChildIndex parentChildIndex) {
+                                    ParentChildIndex parentChildIndex, SourceLookupIndex sourceLookupIndex) {
         TargetObjectFactory.ObjectCreationContext ctx = new TargetObjectFactory.ObjectCreationContext(
                 objectsByOutputAndBasket, new LinkedHashMap<>(), diagnostics, stateStore,
                 referenceIndex, parentChildIndex, metrics, geometryAdapter, sourceAttrTypes);
@@ -286,7 +286,7 @@ public final class RuleExecutionService {
 
             Map<String, IomObject> sources = Map.of(sp.alias(), record.sourceObject());
             EvalContext evalCtx = new EvalContext(sources, diagnostics, parentRule.ruleId(), plan.enumMaps(),
-                    null, sourceAttrTypes);
+                    null, sourceAttrTypes).withLookupIndex(sourceLookupIndex);
 
             targetObjectFactory.createTargetForCreatePlan(create, parentRule, record, evalCtx, plan, ctx);
             metrics.recordTarget(TargetObjectFactory.getScopedName(create.targetClass()));

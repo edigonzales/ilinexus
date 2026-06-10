@@ -22,14 +22,28 @@ public final class InMemorySourceLookupIndex implements SourceLookupIndex {
 
         for (int i = 0; i < obj.getattrcount(); i++) {
             String attrName = obj.getattrname(i);
+            // 1. Scalar value
             String attrValue = obj.getattrvalue(attrName);
-            if (attrValue == null) continue;
-
-            CanonicalValue cv = new CanonicalValue("text", attrValue, true);
-            classIndex
-                    .computeIfAbsent(attrName, k -> new LinkedHashMap<>())
-                    .computeIfAbsent(cv, k -> new ArrayList<>())
-                    .add(record);
+            if (attrValue != null) {
+                CanonicalValue cv = new CanonicalValue("text", attrValue, true);
+                classIndex
+                        .computeIfAbsent(attrName, k -> new LinkedHashMap<>())
+                        .computeIfAbsent(cv, k -> new ArrayList<>())
+                        .add(record);
+                continue;
+            }
+            // 2. Reference object (e.g. ILI1 -> LFP3 or ILI2 REFERENCE TO)
+            if (obj.getattrvaluecount(attrName) > 0) {
+                IomObject refObj = obj.getattrobj(attrName, 0);
+                if (refObj != null && refObj.getobjectrefoid() != null) {
+                    String refOid = refObj.getobjectrefoid();
+                    CanonicalValue cv = new CanonicalValue("text", refOid, true);
+                    classIndex
+                            .computeIfAbsent(attrName, k -> new LinkedHashMap<>())
+                            .computeIfAbsent(cv, k -> new ArrayList<>())
+                            .add(record);
+                }
+            }
         }
     }
 

@@ -1,0 +1,127 @@
+package guru.interlis.transformer.expr.builtins;
+
+import ch.interlis.iom.IomObject;
+import guru.interlis.transformer.diag.Diagnostic;
+import guru.interlis.transformer.diag.DiagnosticCode;
+import guru.interlis.transformer.diag.Severity;
+import guru.interlis.transformer.expr.EvalContext;
+import guru.interlis.transformer.expr.FunctionDef;
+import guru.interlis.transformer.expr.FunctionRegistry;
+import guru.interlis.transformer.expr.NullValue;
+import guru.interlis.transformer.expr.ReferenceValue;
+import guru.interlis.transformer.expr.TextValue;
+import guru.interlis.transformer.expr.Value;
+import guru.interlis.transformer.mapping.plan.TypeInfo;
+import guru.interlis.transformer.state.CanonicalValue;
+import guru.interlis.transformer.state.LookupKey;
+import guru.interlis.transformer.state.SourceLookupIndex;
+import guru.interlis.transformer.state.SourceRecord;
+
+import java.util.List;
+
+public final class LookupFunctions {
+
+    private LookupFunctions() {}
+
+    public static void registerAll(FunctionRegistry registry) {
+        registry.register("oid", TypeInfo.TEXT,
+                List.of(new FunctionDef.FunctionParam("alias", TypeInfo.TEXT)),
+                LookupFunctions::oid);
+
+        registry.register("lookup", TypeInfo.UNKNOWN,
+                List.of(
+                        new FunctionDef.FunctionParam("classPath", TypeInfo.TEXT),
+                        new FunctionDef.FunctionParam("keyAttr", TypeInfo.TEXT),
+                        new FunctionDef.FunctionParam("keyValue", TypeInfo.TEXT),
+                        new FunctionDef.FunctionParam("returnAttr", TypeInfo.TEXT)
+                ),
+                LookupFunctions::lookup);
+    }
+
+    static Value oid(List<Value> args, EvalContext ctx) {
+        if (args.isEmpty()) {
+            return NullValue.INSTANCE;
+        }
+        Value arg = args.get(0);
+        if (arg instanceof ReferenceValue rv) {
+            return new TextValue(rv.oid());
+        }
+        String alias = arg.asText();
+        IomObject source = ctx.sources().get(alias);
+        if (source == null) {
+            if (ctx.diagnostics() != null) {
+                ctx.diagnostics().add(new Diagnostic(
+                        DiagnosticCode.EXPR_UNKNOWN_PATH, Severity.WARNING,
+                        "oid(): source alias '" + alias + "' not found in context",
+                        ctx.ruleId(), "Check alias declaration in rule sources"));
+            }
+            return NullValue.INSTANCE;
+        }
+        String objectOid = source.getobjectoid();
+        if (objectOid == null || objectOid.isBlank()) {
+            return NullValue.INSTANCE;
+        }
+        return new TextValue(objectOid);
+    }
+
+    static Value lookup(List<Value> args, EvalContext ctx) {
+        if (args.size() < 4) {
+            if (ctx.diagnostics() != null) {
+                ctx.diagnostics().add(new Diagnostic(
+                        DiagnosticCode.EXPR_WRONG_ARG_COUNT, Severity.ERROR,
+                        "lookup() requires 4 arguments: classPath, keyAttr, keyValue, returnAttr",
+                        ctx.ruleId(), "Use lookup('Class.Path', 'KeyAttr', oid(alias), 'ReturnAttr')"));
+            }
+            return NullValue.INSTANCE;
+        }
+
+        String classPath = args.get(0).asText();
+        String keyAttr = args.get(1).asText();
+        String keyValue = args.get(2).asText();
+        String returnAttr = args.get(3).asText();
+
+        SourceLookupIndex index = ctx.lookupIndex();
+        if (index == null) {
+            if (ctx.diagnostics() != null) {
+                ctx.diagnostics().add(new Diagnostic(
+                        DiagnosticCode.LOOKUP_INDEX_MISSING, Severity.ERROR,
+                        "lookup() called but no SourceLookupIndex is available in context",
+                        ctx.ruleId(), "Ensure the engine initialized the source lookup index"));
+            }
+            return NullValue.INSTANCE;
+        }
+
+        LookupKey key = new LookupKey(
+                null,               // inputId: search across all inputs
+                classPath,
+                keyAttr,
+                new CanonicalValue("text", keyValue, true)
+        );
+
+        List<SourceRecord> hits = index.lookup(key);
+        if (hits.isEmpty()) {
+            if (ctx.diagnostics() != null) {
+                ctx.diagnostics().add(new Diagnostic(
+                        DiagnosticCode.LOOKUP_NO_MATCH, Severity.WARNING,
+                        "lookup() found no match for " + classPath + "." + keyAttr + "=" + keyValue,
+                        ctx.ruleId(), "Verify the referenced child object exists in the source data"));
+            }
+            return NullValue.INSTANCE;
+        }
+        if (hits.size() > 1) {
+            if (ctx.diagnostics() != null) {
+                ctx.diagnostics().add(new Diagnostic(
+                        DiagnosticCode.LOOKUP_AMBIGUOUS, Severity.WARNING,
+                        "lookup() found " + hits.size() + " matches for " + classPath + "." + keyAttr + "=" + keyValue + ", using first",
+                        ctx.ruleId(), "Ensure the lookup key uniquely identifies one record"));
+            }
+        }
+
+        IomObject hit = hits.get(0).sourceObject();
+        String attrValue = hit.getattrvalue(returnAttr);
+        if (attrValue == null) {
+            return NullValue.INSTANCE;
+        }
+        return new TextValue(attrValue);
+    }
+}

@@ -15,7 +15,8 @@ public record BagPlan(
         Integer cardinalityMax,
         Integer maxItems,
         IdentityPlan identityPlan,
-        RefPlan parentRefPlan
+        RefPlan parentRefPlan,
+        List<BagPlan> nestedBags
 ) {
     public enum BagMode {
         EMBED,

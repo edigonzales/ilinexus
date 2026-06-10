@@ -199,7 +199,6 @@ class RealLfp3SemanticRoundtripTest {
                 .ignore("Grenzpunktfunktion")
                 .ignore("IstHoheitsgrenzsteinAlt")
                 .ignore("AktiverUnterhalt")
-                .ignore("SymbolOri")
                 .expectedLossReasonCode("DMAV_ONLY")
                 .build();
     }

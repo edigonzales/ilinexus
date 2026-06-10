@@ -9,6 +9,7 @@ import guru.interlis.transformer.diag.Severity;
 import guru.interlis.transformer.expr.builtins.BasicFunctions;
 import guru.interlis.transformer.expr.builtins.DateFunctions;
 import guru.interlis.transformer.expr.builtins.EnumFunctions;
+import guru.interlis.transformer.expr.builtins.LookupFunctions;
 import guru.interlis.transformer.expr.builtins.MathFunctions;
 import guru.interlis.transformer.expr.builtins.RefFunctions;
 import guru.interlis.transformer.expr.builtins.StringFunctions;
@@ -38,6 +39,7 @@ public final class ExpressionEngine {
         EnumFunctions.registerAll(functionRegistry);
         RefFunctions.registerAll(functionRegistry);
         MathFunctions.registerAll(functionRegistry);
+        LookupFunctions.registerAll(functionRegistry);
     }
 
     public FunctionRegistry functionRegistry() {
@@ -205,6 +207,11 @@ public final class ExpressionEngine {
 
         String attrValue = source.getattrvalue(parts[1]);
         if (attrValue == null) {
+            // Fallback: try reading as reference even without type info
+            String refOid = readReferenceOid(source, parts[1]);
+            if (refOid != null) {
+                return new ReferenceValue(null, refOid);
+            }
             return NullValue.INSTANCE;
         }
         return new TextValue(attrValue);

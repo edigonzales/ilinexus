@@ -42,14 +42,15 @@ public final class MappingCandidateGenerator {
         // 3. Compile models and build inventories
         IliModelService modelService = new IliModelService();
 
+        ModelInventory dm01Inventory = null;
         Map<String, String> dm01ClassPaths = new LinkedHashMap<>();
         Map<String, ModelInventory.AttributeInventory> dm01Attrs = new LinkedHashMap<>();
         if (dm01ModelName != null && !dm01ModelName.isBlank()) {
             IliModelCompileResult dm01Result = modelService.compileModel(dm01ModelName, dm01ModelDir);
             if (!dm01Result.hasErrors() && dm01Result.transferDescription() != null) {
-                ModelInventory dm01Inv = modelService.buildInventory(
+                dm01Inventory = modelService.buildInventory(
                         dm01Result.transferDescription(), dm01ModelName);
-                for (var topic : dm01Inv.topics()) {
+                for (var topic : dm01Inventory.topics()) {
                     for (var cls : topic.classes()) {
                         dm01ClassPaths.put(cls.name().toLowerCase(), cls.path());
                         dm01ClassPaths.put(cls.path().toLowerCase(), cls.path());
@@ -63,14 +64,15 @@ public final class MappingCandidateGenerator {
             }
         }
 
+        ModelInventory dmavInventory = null;
         Map<String, String> dmavClassPaths = new LinkedHashMap<>();
         Map<String, ModelInventory.AttributeInventory> dmavAttrs = new LinkedHashMap<>();
         if (dmavModelName != null && !dmavModelName.isBlank()) {
             IliModelCompileResult dmavResult = modelService.compileModel(dmavModelName, dmavModelDir);
             if (!dmavResult.hasErrors() && dmavResult.transferDescription() != null) {
-                ModelInventory dmavInv = modelService.buildInventory(
+                dmavInventory = modelService.buildInventory(
                         dmavResult.transferDescription(), dmavModelName);
-                for (var topic : dmavInv.topics()) {
+                for (var topic : dmavInventory.topics()) {
                     for (var cls : topic.classes()) {
                         dmavClassPaths.put(cls.name().toLowerCase(), cls.path());
                         dmavClassPaths.put(cls.path().toLowerCase(), cls.path());
@@ -88,7 +90,7 @@ public final class MappingCandidateGenerator {
         Set<String> coveredKeys = new java.util.HashSet<>();
         for (CorrelationHint hint : hints) {
             MappingCandidate candidate = fromHint(hint, dm01ClassPaths, dm01Attrs,
-                    dmavClassPaths, dmavAttrs, genWarnings);
+                    dmavClassPaths, dmavAttrs, dm01Inventory, dmavInventory, genWarnings);
             if (candidate != null) {
                 candidates.add(candidate);
                 coveredKeys.add(candidate.key());
@@ -152,6 +154,8 @@ public final class MappingCandidateGenerator {
                                        Map<String, ModelInventory.AttributeInventory> dm01Attrs,
                                        Map<String, String> dmavClassPaths,
                                        Map<String, ModelInventory.AttributeInventory> dmavAttrs,
+                                       ModelInventory dm01Inv,
+                                       ModelInventory dmavInv,
                                        List<String> warnings) {
         List<String> hintWarnings = new ArrayList<>(hint.warnings());
 
@@ -186,6 +190,17 @@ public final class MappingCandidateGenerator {
             expression = "TODO(" + srcAttr + " -> " + tgtAttr + ")";
         }
 
+        // Detect child-to-parent lookup pattern (e.g. DM01 LFP3Symbol.Ori -> DMAV LFP3.SymbolOri)
+        if (hint.direction() == Direction.DM01_TO_DMAV
+                && fullSrcClass != null && fullTgtClass != null
+                && !fullSrcClass.equals(fullTgtClass)
+                && dm01Inv != null) {
+            String refRole = findReferenceRole(dm01Inv, fullSrcClass, fullTgtClass);
+            if (refRole != null) {
+                expression = "LOOKUP|" + fullSrcClass + "|" + refRole + "|" + srcAttr;
+            }
+        }
+
         String id = candidateId(fullSrcClass, fullTgtClass, srcAttr);
 
         return new MappingCandidate(id, hint.direction(),
@@ -210,6 +225,25 @@ public final class MappingCandidateGenerator {
         for (var entry : paths.entrySet()) {
             if (entry.getKey().contains(lower) || lower.contains(entry.getKey())) {
                 return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private String findReferenceRole(ModelInventory inv, String childClassPath, String parentClassPath) {
+        if (inv == null) return null;
+        for (var topic : inv.topics()) {
+            for (var cls : topic.classes()) {
+                boolean matchesChild = childClassPath.equals(cls.path())
+                        || childClassPath.endsWith("." + cls.name());
+                if (!matchesChild) continue;
+                for (var role : cls.roles()) {
+                    boolean matchesParent = parentClassPath.equals(role.targetClass())
+                            || parentClassPath.endsWith("." + role.targetClass());
+                    if (matchesParent) {
+                        return role.name();
+                    }
+                }
             }
         }
         return null;

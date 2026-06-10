@@ -75,8 +75,10 @@ public final class MappingCandidateExporter {
         YAML.writeValue(path.toFile(), config);
     }
 
+    private static final String LOOKUP_PREFIX = "LOOKUP|";
+
     private JobConfig buildJobConfig(List<MappingCandidate> candidates, Direction direction,
-                                      String dm01Model, String dmavModel) {
+                                       String dm01Model, String dmavModel) {
         JobConfig config = new JobConfig();
         config.version = 1;
         config.job.direction = direction.name();
@@ -89,20 +91,32 @@ public final class MappingCandidateExporter {
         config.job.inputs.add(buildInput("in1", sourceModel));
         config.job.outputs.add(buildOutput("out1", targetModel));
 
-        // Group candidates by target class
-        Map<String, List<MappingCandidate>> byTarget = new LinkedHashMap<>();
+        // Split normal vs lookup candidates
+        List<MappingCandidate> normal = new ArrayList<>();
+        List<MappingCandidate> lookups = new ArrayList<>();
         for (MappingCandidate c : candidates) {
+            if (c.expression() != null && c.expression().startsWith(LOOKUP_PREFIX)) {
+                lookups.add(c);
+            } else {
+                normal.add(c);
+            }
+        }
+
+        // Group normal candidates by target class
+        Map<String, List<MappingCandidate>> byTarget = new LinkedHashMap<>();
+        for (MappingCandidate c : normal) {
             byTarget.computeIfAbsent(c.targetClass(), k -> new ArrayList<>()).add(c);
         }
 
-        // Also group sources needed (unique source classes)
+        // Build source aliases from normal candidates only
         Map<String, String> sourceAliases = new LinkedHashMap<>();
         int aliasIdx = 0;
-        for (MappingCandidate c : candidates) {
+        for (MappingCandidate c : normal) {
             sourceAliases.putIfAbsent(c.sourceClass(), "s" + (aliasIdx++));
         }
 
         int ruleIdx = 0;
+        Map<String, JobConfig.RuleSpec> rulesByTarget = new LinkedHashMap<>();
         for (var entry : byTarget.entrySet()) {
             String targetClass = entry.getKey();
             List<MappingCandidate> group = entry.getValue();
@@ -129,6 +143,29 @@ public final class MappingCandidateExporter {
             }
 
             config.mapping.rules.add(rule);
+            rulesByTarget.put(targetClass, rule);
+        }
+
+        // Process lookup candidates as assignments into existing rules
+        for (MappingCandidate lc : lookups) {
+            JobConfig.RuleSpec rule = rulesByTarget.get(lc.targetClass());
+            if (rule == null) {
+                // No parent rule to attach to – skip lookup candidate
+                continue;
+            }
+            String parentAlias = rule.sources.isEmpty() ? "s0" : rule.sources.get(0).alias;
+            String[] parts = lc.expression().split("\\|", 4);
+            if (parts.length < 4) continue;
+            String childClass = parts[1];
+            String refRole = parts[2];
+            String childAttr = parts[3];
+
+            String lookupExpr = "lookup('" + childClass + "', '" + refRole + "', oid(" + parentAlias + "), '" + childAttr + "')";
+
+            if (rule.assign == null) {
+                rule.assign = new LinkedHashMap<>();
+            }
+            rule.assign.put(lc.targetAttribute(), lookupExpr);
         }
 
         return config;
