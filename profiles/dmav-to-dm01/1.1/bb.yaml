@@ -67,6 +67,43 @@ mapping:
         Geometrie: "b.Geometrie"
         Qualitaet: "b.Qualitaetsstandard"
         Art: "enumMap(b.Bodenbedeckungsart, 'Bodenbedeckungsart_DMAV_DM01')"
+      bags:
+        Objektnummer:
+          mode: expand
+          structure: "DM01AVCH24LV95D.Bodenbedeckung.Gebaeudenummer"
+          from:
+            input: dmav
+            alias: gn
+            class: "DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.Objektnummer"
+          parentRef:
+            role: Gebaeudenummer_von
+            parentAlias: b
+          assign:
+            Nummer: "gn.Nummer"
+            GWR_EGID: "b.EGID"
+        Objektname:
+          mode: expand
+          structure: "DM01AVCH24LV95D.Bodenbedeckung.Objektname"
+          from:
+            input: dmav
+            alias: onItem
+            class: "DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.Objektname"
+          parentRef:
+            role: Objektname_von
+          assign:
+            Name: "onItem.Name"
+        Symbolposition:
+          mode: expand
+          structure: "DM01AVCH24LV95D.Bodenbedeckung.BoFlaecheSymbol"
+          from:
+            input: dmav
+            alias: symItem
+            class: "DMAVTYM_Grafik_V1_0.Symbolposition"
+          parentRef:
+            role: BoFlaecheSymbol_von
+          assign:
+            Pos: "symItem.Position"
+            Ori: "coalesce(symItem.Orientierung, 100.0)"
       refs:
         - association: "BoFlaecheEntstehung"
           role: "Entstehung"

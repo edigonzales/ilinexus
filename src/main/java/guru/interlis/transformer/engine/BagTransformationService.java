@@ -181,11 +181,13 @@ public final class BagTransformationService {
     }
 
     public void expand(BagExecutionContext ctx) {
-        BagPlan bag = ctx.plan();
-        IomObject parentObj = ctx.parent().sourceRecord().sourceObject();
-        Iom_jObject parentTarget = (Iom_jObject) ctx.target();
+        expandBag(ctx.plan(), ctx.parent().sourceRecord(),
+                ctx.parent().sourceRecord().sourceObject(), (Iom_jObject) ctx.target(), ctx);
+    }
+
+    private void expandBag(BagPlan bag, SourceRecord parentRecord, IomObject parentObj,
+                           Iom_jObject parentTarget, BagExecutionContext ctx) {
         TransformPlan plan = ctx.transformPlan();
-        SourceRecord parentRecord = ctx.parent().sourceRecord();
 
         String bagAttrName = bag.bagAttrName();
         int count = parentObj.getattrvaluecount(bagAttrName);
@@ -265,7 +267,12 @@ public final class BagTransformationService {
 
             Iom_jObject bagTarget = new Iom_jObject(bag.structureName(), targetOid);
 
-            Map<String, IomObject> assignSources = Map.of(bag.fromSource().alias(), structure);
+            Map<String, IomObject> assignSources = new LinkedHashMap<>();
+            assignSources.put(bag.fromSource().alias(), structure);
+            String parentAlias = bag.parentAlias();
+            if (parentAlias != null && !parentAlias.isBlank() && !parentAlias.equals(bag.fromSource().alias())) {
+                assignSources.put(parentAlias, parentObj);
+            }
             EvalContext assignCtx = new EvalContext(assignSources, ctx.diagnostics(),
                     ctx.rule().ruleId(), plan.enumMaps(),
                     ctx.geometryAdapter(), ctx.sourceAttributeTypes());
@@ -314,6 +321,13 @@ public final class BagTransformationService {
                             parentTarget.getobjecttag(),
                             new DeferredReference.Cardinality(1, 1),
                             true));
+                }
+            }
+
+            // Nested bags (EXPAND only)
+            for (BagPlan nestedBag : bag.nestedBags()) {
+                if (nestedBag.isExpand()) {
+                    expandBag(nestedBag, parentRecord, structure, bagTarget, ctx);
                 }
             }
 

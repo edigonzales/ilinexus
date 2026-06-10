@@ -28,6 +28,14 @@ public final class LookupFunctions {
                 List.of(new FunctionDef.FunctionParam("alias", TypeInfo.TEXT)),
                 LookupFunctions::oid);
 
+        registry.register("bagFirst", TypeInfo.TEXT,
+                List.of(
+                        new FunctionDef.FunctionParam("alias", TypeInfo.TEXT),
+                        new FunctionDef.FunctionParam("bagAttr", TypeInfo.TEXT),
+                        new FunctionDef.FunctionParam("valueAttr", TypeInfo.TEXT)
+                ),
+                LookupFunctions::bagFirst);
+
         registry.register("lookup", TypeInfo.UNKNOWN,
                 List.of(
                         new FunctionDef.FunctionParam("classPath", TypeInfo.TEXT),
@@ -36,6 +44,31 @@ public final class LookupFunctions {
                         new FunctionDef.FunctionParam("returnAttr", TypeInfo.TEXT)
                 ),
                 LookupFunctions::lookup);
+    }
+
+    static Value bagFirst(List<Value> args, EvalContext ctx) {
+        if (args.size() < 3) {
+            return NullValue.INSTANCE;
+        }
+        String alias = args.get(0).asText();
+        String bagAttr = args.get(1).asText();
+        String valueAttr = args.get(2).asText();
+        IomObject source = ctx.sources().get(alias);
+        if (source == null) {
+            return NullValue.INSTANCE;
+        }
+        if (source.getattrvaluecount(bagAttr) <= 0) {
+            return NullValue.INSTANCE;
+        }
+        IomObject bagItem = source.getattrobj(bagAttr, 0);
+        if (bagItem == null) {
+            return NullValue.INSTANCE;
+        }
+        String val = bagItem.getattrvalue(valueAttr);
+        if (val == null) {
+            return NullValue.INSTANCE;
+        }
+        return new TextValue(val);
     }
 
     static Value oid(List<Value> args, EvalContext ctx) {
@@ -112,7 +145,7 @@ public final class LookupFunctions {
             if (ctx.diagnostics() != null) {
                 ctx.diagnostics().add(new Diagnostic(
                         DiagnosticCode.LOOKUP_AMBIGUOUS, Severity.WARNING,
-                        "lookup() found " + hits.size() + " matches for " + classPath + "." + keyAttr + "=" + keyValue + ", using first",
+                        "lookup() found " + hits.size() + " matches for " + classPath + "." + keyAttr + "=" + keyValue + ", using first — EGID may be overdetermined",
                         ctx.ruleId(), "Ensure the lookup key uniquely identifies one record"));
             }
         }
