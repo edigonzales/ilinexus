@@ -21,8 +21,12 @@ import ch.interlis.iox.ObjectEvent;
 import ch.interlis.iox_j.jts.Iox2jts;
 import ch.interlis.iox_j.jts.Iox2jtsException;
 import ch.interlis.iox_j.jts.Jts2iox;
+import ch.interlis.iox_j.logging.LogEventFactory;
+import ch.ehi.iox.objpool.ObjectPoolManager;
+import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.Geometry;
 import com.vividsolutions.jts.geom.Point;
+import com.vividsolutions.jts.geom.Polygon;
 import guru.interlis.transformer.diag.Diagnostic;
 import guru.interlis.transformer.diag.DiagnosticCode;
 import guru.interlis.transformer.diag.DiagnosticCollector;
@@ -46,6 +50,8 @@ public final class ItfGeometryWriter implements IoxWriter {
 
     private List<Object> currentItfTables;
     private Map<String, List<BufferedObj>> bufferedObjects;
+    private final ObjectPoolManager objectPoolManager = new ObjectPoolManager();
+    private final Map<String, List<AreaEntry>> areaAccumulator = new HashMap<>();
     private long oidCounter;
     private long maxBaseOid;
 
@@ -77,6 +83,7 @@ public final class ItfGeometryWriter implements IoxWriter {
                 currentItfTables = null;
             }
             bufferedObjects = new LinkedHashMap<>();
+            areaAccumulator.clear();
             oidCounter = 0;
             maxBaseOid = 0;
             delegate.write(event);
@@ -91,6 +98,7 @@ public final class ItfGeometryWriter implements IoxWriter {
             delegate.write(event);
             currentItfTables = null;
             bufferedObjects = new LinkedHashMap<>();
+            areaAccumulator.clear();
             return;
         }
         delegate.write(event);
@@ -98,6 +106,7 @@ public final class ItfGeometryWriter implements IoxWriter {
 
     @Override
     public void close() throws IoxException {
+        objectPoolManager.close();
         delegate.close();
     }
 
@@ -143,16 +152,44 @@ public final class ItfGeometryWriter implements IoxWriter {
                 continue;
             }
 
-            PreparedGeometry prepared = prepareGeometry(source, geometryAttr, geomValue);
-            if (prepared == null) {
-                continue;
-            }
-
-            for (HelperRowObj row : prepared.rows()) {
-                buffer(geometryTableName(geometryAttr.attribute()), row);
-            }
-            if (geometryAttr.isArea() && prepared.areaPoint() != null) {
-                baseObj.addattrobj(attrName, new Iom_jObject(prepared.areaPoint()));
+            if (geometryAttr.isArea()) {
+                IomObject surfaceGeometry = toSurfaceContainer(geomValue);
+                if (surfaceGeometry == null) {
+                    reportGeometryError(DiagnosticCode.GEOM_INVALID, source, attrName,
+                            "Geometry object is not a serializable AREA container",
+                            "Provide canonical SURFACE/MULTISURFACE geometry before writing ITF");
+                    continue;
+                }
+                int surfaceCount = surfaceGeometry.getattrvaluecount("surface");
+                if (surfaceCount <= 0) {
+                    reportGeometryError(DiagnosticCode.GEOM_INVALID, source, attrName,
+                            "AREA geometry contains no surface elements",
+                            "Provide a single-surface AREA geometry");
+                    continue;
+                }
+                if (surfaceCount > 1) {
+                    reportGeometryError(DiagnosticCode.GEOM_INVALID, source, attrName,
+                            "AREA with multiple surface elements is not supported in ILI1 reverse serialization",
+                            "Provide a single-surface AREA geometry");
+                    continue;
+                }
+                IomObject areaPoint = resolveAreaPoint(source, attrName, geomValue);
+                if (areaPoint == null) {
+                    continue;
+                }
+                areaAccumulator.computeIfAbsent(geometryTableTag(geometryAttr.attribute()),
+                                k -> new ArrayList<>())
+                        .add(new AreaEntry(source.getobjectoid(), surfaceGeometry,
+                                source, attrName, geometryAttr));
+                baseObj.addattrobj(attrName, new Iom_jObject(areaPoint));
+            } else {
+                PreparedGeometry prepared = prepareGeometry(source, geometryAttr, geomValue);
+                if (prepared == null) {
+                    continue;
+                }
+                for (HelperRowObj row : prepared.rows()) {
+                    buffer(geometryTableName(geometryAttr.attribute()), row);
+                }
             }
         }
         buffer(tableName(source), new ImmediateObj(baseObj));
@@ -175,13 +212,7 @@ public final class ItfGeometryWriter implements IoxWriter {
             return null;
         }
 
-        IomObject areaPoint = null;
-        if (geometryAttr.isArea()) {
-            areaPoint = resolveAreaPoint(source, attrName, geomValue);
-            if (areaPoint == null) {
-                return null;
-            }
-        } else if (source.getobjectoid() == null) {
+        if (source.getobjectoid() == null) {
             reportGeometryError(DiagnosticCode.GEOM_INVALID, source, attrName,
                     "SURFACE helper rows require a source object OID",
                     "Ensure the source object has an OID before writing ILI1 helper tables");
@@ -192,13 +223,11 @@ public final class ItfGeometryWriter implements IoxWriter {
         String tableName = geometryTableName(geometryAttr.attribute());
         String tableTag = geometryTableTag(geometryAttr.attribute());
         String geomAttrName = ModelUtilities.getHelperTableGeomAttrName(geometryAttr.attribute());
-        String refAttrName = geometryAttr.isArea()
-                ? null
-                : ModelUtilities.getHelperTableMainTableRef(geometryAttr.attribute());
+        String refAttrName = ModelUtilities.getHelperTableMainTableRef(geometryAttr.attribute());
         for (IomObject polyline : polylines) {
             rows.add(new HelperRowObj(tableTag, geomAttrName, refAttrName, source.getobjectoid(), polyline));
         }
-        return new PreparedGeometry(rows, areaPoint);
+        return new PreparedGeometry(rows, null);
     }
 
     private List<IomObject> extractHelperPolylines(IomObject source, GeometryAttr geometryAttr, IomObject geomValue) {
@@ -216,13 +245,6 @@ public final class ItfGeometryWriter implements IoxWriter {
             reportGeometryError(DiagnosticCode.GEOM_INVALID, source, attrName,
                     "Geometry object contains no surface elements",
                     "Provide canonical SURFACE/MULTISURFACE geometry before writing ITF");
-            return null;
-        }
-
-        if (geometryAttr.isArea() && surfaceCount > 1) {
-            reportGeometryError(DiagnosticCode.GEOM_INVALID, source, attrName,
-                    "AREA geometry with multiple surface elements is not supported in ILI1 reverse serialization",
-                    "Provide a single-surface AREA geometry");
             return null;
         }
 
@@ -355,6 +377,14 @@ public final class ItfGeometryWriter implements IoxWriter {
                         "Provide a valid surface geometry or preserve the ILI1 helper point");
                 return null;
             }
+            if (!geometry.isValid()) {
+                Geometry fixed = geometry.buffer(0);
+                if (!fixed.isEmpty()
+                        && ("Polygon".equals(fixed.getGeometryType())
+                            || "MultiPolygon".equals(fixed.getGeometryType()))) {
+                    geometry = fixed;
+                }
+            }
             Point interiorPoint = geometry.getInteriorPoint();
             if (interiorPoint == null || interiorPoint.isEmpty() || interiorPoint.getCoordinate() == null) {
                 reportGeometryError(DiagnosticCode.GEOM_AREA_POINT_MISSING, source, attrName,
@@ -395,12 +425,70 @@ public final class ItfGeometryWriter implements IoxWriter {
         return Iox2jts.surface2JTS(geomValue, DEFAULT_MAX_OVERLAP);
     }
 
+    private void buildAreaTopology() throws IoxException {
+        for (var entry : areaAccumulator.entrySet()) {
+            String tableTag = entry.getKey();
+            List<AreaEntry> areas = entry.getValue();
+            if (areas.isEmpty()) {
+                continue;
+            }
+
+            ItfAreaPolygon2Linetable topoWriter = new ItfAreaPolygon2Linetable(
+                    tableTag, objectPoolManager);
+            LogEventFactory logEventFactory = new LogEventFactory();
+
+            for (AreaEntry area : areas) {
+                try {
+                    topoWriter.addMultiPolygon(
+                            area.sourceOid(),
+                            null,
+                            area.surfaceGeometry(),
+                            "Warning",
+                            logEventFactory);
+                } catch (IoxException e) {
+                    reportGeometryError(DiagnosticCode.GEOM_INVALID, area.source(),
+                            area.attrName(),
+                            "Topology build failed: " + e.getMessage(),
+                            "Fix source geometry");
+                }
+            }
+
+            List<IomObject> topoLines;
+            try {
+                topoLines = topoWriter.getLines();
+            } catch (IoxException e) {
+                reportGeometryError(DiagnosticCode.GEOM_INVALID, null,
+                        tableTag,
+                        "AREA topology has intersections: " + e.getMessage(),
+                        "Source geometries may have invalid topology");
+                continue;
+            }
+
+            if (topoLines.isEmpty()) {
+                continue;
+            }
+
+            AreaEntry first = areas.get(0);
+            String tableName = geometryTableName(first.geometryAttr().attribute());
+            String geomAttrName = ModelUtilities.getHelperTableGeomAttrName(
+                    first.geometryAttr().attribute());
+            for (IomObject polyline : topoLines) {
+                buffer(tableName, new HelperRowObj(tableTag, geomAttrName,
+                        null, null, polyline));
+            }
+        }
+        areaAccumulator.clear();
+    }
+
     private void buffer(String tableName, BufferedObj obj) {
         bufferedObjects.computeIfAbsent(tableName, ignored -> new ArrayList<>()).add(obj);
     }
 
     private void flushBufferedObjects() throws IoxException {
         oidCounter = maxBaseOid;
+        if (!areaAccumulator.isEmpty()) {
+            buildAreaTopology();
+        }
         if (currentItfTables != null) {
             for (Object element : currentItfTables) {
                 writeBufferedTable(itfTableName(element));
@@ -586,6 +674,11 @@ public final class ItfGeometryWriter implements IoxWriter {
     }
 
     private record GeometryAttr(AttributeDef attribute, boolean isArea) {
+    }
+
+    private record AreaEntry(String sourceOid, IomObject surfaceGeometry,
+                             IomObject source, String attrName,
+                             GeometryAttr geometryAttr) {
     }
 
     private record PreparedGeometry(List<HelperRowObj> rows, IomObject areaPoint) {

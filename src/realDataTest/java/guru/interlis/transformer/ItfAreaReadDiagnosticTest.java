@@ -71,9 +71,16 @@ class ItfAreaReadDiagnosticTest {
             System.out.println("ITF read succeeded - no polygon error");
         } catch (Exception e) {
             System.out.println("ITF read FAILED with: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            System.out.println("Stack trace (first 10):");
+            for (StackTraceElement ste : java.util.Arrays.stream(e.getStackTrace()).limit(10).toList()) {
+                System.out.println("  at " + ste);
+            }
             Throwable cause = e.getCause();
             while (cause != null) {
                 System.out.println("  Caused by: " + cause.getClass().getSimpleName() + ": " + cause.getMessage());
+                for (StackTraceElement ste : java.util.Arrays.stream(cause.getStackTrace()).limit(5).toList()) {
+                    System.out.println("    at " + ste);
+                }
                 cause = cause.getCause();
             }
             // Save error details
