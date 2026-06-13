@@ -141,7 +141,8 @@ public final class LookupFunctions {
             }
             return NullValue.INSTANCE;
         }
-        if (hits.size() > 1) {
+        String attrValue = hits.get(0).sourceObject().getattrvalue(returnAttr);
+        if (hits.size() > 1 && !allReturnValuesEqual(hits, returnAttr)) {
             if (ctx.diagnostics() != null) {
                 ctx.diagnostics().add(new Diagnostic(
                         DiagnosticCode.LOOKUP_AMBIGUOUS, Severity.WARNING,
@@ -149,12 +150,27 @@ public final class LookupFunctions {
                         ctx.ruleId(), "Ensure the lookup key uniquely identifies one record"));
             }
         }
-
-        IomObject hit = hits.get(0).sourceObject();
-        String attrValue = hit.getattrvalue(returnAttr);
         if (attrValue == null) {
             return NullValue.INSTANCE;
         }
         return new TextValue(attrValue);
+    }
+
+    private static boolean allReturnValuesEqual(List<SourceRecord> hits, String returnAttr) {
+        String first = null;
+        boolean initialized = false;
+        for (SourceRecord hit : hits) {
+            IomObject sourceObject = hit.sourceObject();
+            String value = sourceObject != null ? sourceObject.getattrvalue(returnAttr) : null;
+            if (!initialized) {
+                first = value;
+                initialized = true;
+                continue;
+            }
+            if (!java.util.Objects.equals(first, value)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

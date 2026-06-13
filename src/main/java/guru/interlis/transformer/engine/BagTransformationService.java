@@ -31,6 +31,8 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import ch.interlis.ili2c.metamodel.AttributeDef;
+import ch.interlis.ili2c.metamodel.Cardinality;
 
 public final class BagTransformationService {
 
@@ -208,7 +210,8 @@ public final class BagTransformationService {
         String outputId = ctx.rule().outputId();
 
         for (int i = 0; i < limit; i++) {
-            IomObject structure = parentObj.getattrobj(bagAttrName, i);
+            IomObject rawStructure = parentObj.getattrobj(bagAttrName, i);
+            IomObject structure = normalizeBagSourceStructure(rawStructure, bag);
             if (structure == null) continue;
 
             String targetOid;
@@ -316,6 +319,10 @@ public final class BagTransformationService {
 
     private void checkMandatoryAttributes(Iom_jObject struct, BagPlan bag, DiagnosticCollector diag) {
         for (AssignmentPlan ap : bag.assignments()) {
+            AttributeDef targetAttr = ap.targetAttr();
+            if (!isMandatory(targetAttr)) {
+                continue;
+            }
             String attrName = ap.targetAttrName();
             if (struct.getattrvalue(attrName) == null && struct.getattrvaluecount(attrName) == 0) {
                 diag.add(new Diagnostic(DiagnosticCode.RUN_BAG_MANDATORY_MISSING, Severity.WARNING,
@@ -324,6 +331,128 @@ public final class BagTransformationService {
                         bag.bagAttrName(), "Check bag assignment coverage"));
             }
         }
+    }
+
+    private static boolean isMandatory(AttributeDef targetAttr) {
+        if (targetAttr == null) {
+            return false;
+        }
+        Cardinality card = targetAttr.getCardinality();
+        return card != null && card.getMinimum() > 0;
+    }
+
+    private static IomObject normalizeBagSourceStructure(IomObject structure, BagPlan bag) {
+        if (structure == null) {
+            return null;
+        }
+
+        String expectedTag = bag.fromSource().sourceClass() != null
+                ? TypeSystemFacade.getScopedName(bag.fromSource().sourceClass())
+                : null;
+
+        IomObject current = structure;
+        for (int depth = 0; depth < 4; depth++) {
+            if (current == null) {
+                return null;
+            }
+            if (isSingleObjectWrapper(current, expectedTag, bag.bagAttrName())) {
+                String attrName = firstMeaningfulAttributeName(current);
+                if (attrName == null) {
+                    return current;
+                }
+                current = current.getattrobj(attrName, 0);
+                continue;
+            }
+            if (matchesExpectedBagSource(current, expectedTag)) {
+                return current;
+            }
+            if (meaningfulAttributeCount(current) != 1) {
+                return current;
+            }
+
+            String attrName = firstMeaningfulAttributeName(current);
+            if (attrName == null) {
+                return current;
+            }
+            IomObject nested = current.getattrobj(attrName, 0);
+            if (nested == null) {
+                return current;
+            }
+
+            if (!"BAG".equalsIgnoreCase(current.getobjecttag())
+                    && !matchesExpectedAttributeName(attrName, expectedTag, bag.bagAttrName())) {
+                return current;
+            }
+            current = nested;
+        }
+        return current;
+    }
+
+    private static boolean isSingleObjectWrapper(IomObject object, String expectedTag, String bagAttrName) {
+        if (meaningfulAttributeCount(object) != 1) {
+            return false;
+        }
+        String attrName = firstMeaningfulAttributeName(object);
+        if (attrName == null) {
+            return false;
+        }
+        if (!matchesExpectedAttributeName(attrName, expectedTag, bagAttrName)) {
+            return false;
+        }
+        return object.getattrobj(attrName, 0) != null;
+    }
+
+    private static int meaningfulAttributeCount(IomObject object) {
+        int count = 0;
+        for (int i = 0; i < object.getattrcount(); i++) {
+            if (!isHelperAttribute(object.getattrname(i))) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static String firstMeaningfulAttributeName(IomObject object) {
+        for (int i = 0; i < object.getattrcount(); i++) {
+            String attrName = object.getattrname(i);
+            if (!isHelperAttribute(attrName)) {
+                return attrName;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isHelperAttribute(String attrName) {
+        return attrName != null && attrName.startsWith("_");
+    }
+
+    private static boolean matchesExpectedBagSource(IomObject object, String expectedTag) {
+        if (expectedTag == null || expectedTag.isBlank()) {
+            return true;
+        }
+        String tag = object.getobjecttag();
+        if (expectedTag.equals(tag)) {
+            return true;
+        }
+        return lastSegment(expectedTag).equals(tag);
+    }
+
+    private static boolean matchesExpectedAttributeName(String attrName, String expectedTag, String bagAttrName) {
+        if (attrName == null || attrName.isBlank()) {
+            return false;
+        }
+        if (bagAttrName != null && bagAttrName.equals(attrName)) {
+            return true;
+        }
+        return expectedTag != null && lastSegment(expectedTag).equals(attrName);
+    }
+
+    private static String lastSegment(String scopedName) {
+        if (scopedName == null || scopedName.isBlank()) {
+            return "";
+        }
+        int idx = scopedName.lastIndexOf('.');
+        return idx >= 0 ? scopedName.substring(idx + 1) : scopedName;
     }
 
     private void bindParentReference(BagPlan bag, Iom_jObject bagTarget,

@@ -367,11 +367,23 @@ public final class RuleExecutionService {
                 addSourceAttributeTypes(result, sp.alias(), sp.sourceClass());
             }
             for (BagPlan bag : rule.bags()) {
-                if (bag.fromSource() == null || bag.fromSource().sourceClass() == null) continue;
-                addSourceAttributeTypes(result, bag.fromSource().alias(), bag.fromSource().sourceClass());
+                addBagSourceAttributeTypes(result, bag);
             }
         }
         return result;
+    }
+
+    private static void addBagSourceAttributeTypes(Map<String, Map<String, TypeInfo>> result,
+                                                   BagPlan bag) {
+        if (bag == null) {
+            return;
+        }
+        if (bag.fromSource() != null && bag.fromSource().sourceClass() != null) {
+            addSourceAttributeTypes(result, bag.fromSource().alias(), bag.fromSource().sourceClass());
+        }
+        for (BagPlan nestedBag : bag.nestedBags()) {
+            addBagSourceAttributeTypes(result, nestedBag);
+        }
     }
 
     private static void addSourceAttributeTypes(Map<String, Map<String, TypeInfo>> result,

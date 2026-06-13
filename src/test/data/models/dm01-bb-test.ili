@@ -8,6 +8,7 @@ MODEL Dm01BbTestModel (de)
 
     DOMAIN
       Zuverlaessigkeit = (ja, nein);
+      Status = (projektiert, gueltig);
       BBArt = (Gebaeude, befestigt, humusiert, Gewaesser, bestockt, vegetationslos);
       Qualitaetsstandard = (AV93, AV03);
       ExaktDefiniert = (Ja, Nein);
@@ -21,8 +22,50 @@ MODEL Dm01BbTestModel (de)
       NBIdent: MANDATORY TEXT*12;
       Identifikator: MANDATORY TEXT*12;
       Beschreibung: MANDATORY TEXT*30;
+      Gueltigkeit: Status;
       GueltigerEintrag: INTERLIS.XMLDateTime;
     END BBNachfuehrung;
+
+    CLASS ProjBoFlaeche =
+      Geometrie: MANDATORY TEXT*30;
+      Qualitaet: MANDATORY Qualitaetsstandard;
+      Art: MANDATORY BBArt;
+    END ProjBoFlaeche;
+
+    CLASS ProjGebaeudenummer =
+      ProjGebaeudenummer_von: REFERENCE TO ProjBoFlaeche;
+      Nummer: TEXT*12;
+      GWR_EGID: 1 .. 999999999;
+    END ProjGebaeudenummer;
+
+    CLASS ProjGebaeudenummerPos =
+      ProjGebaeudenummerPos_von: REFERENCE TO ProjGebaeudenummer;
+      Pos: TEXT*30;
+      Ori: 0.0 .. 400.0;
+      HAli: HAlignment;
+      VAli: VAlignment;
+      Groesse: Schriftgroesse;
+    END ProjGebaeudenummerPos;
+
+    CLASS ProjObjektname =
+      ProjObjektname_von: REFERENCE TO ProjBoFlaeche;
+      Name: TEXT*30;
+    END ProjObjektname;
+
+    CLASS ProjObjektnamePos =
+      ProjObjektnamePos_von: REFERENCE TO ProjObjektname;
+      Pos: TEXT*30;
+      Ori: 0.0 .. 400.0;
+      HAli: HAlignment;
+      VAli: VAlignment;
+      Groesse: Schriftgroesse;
+    END ProjObjektnamePos;
+
+    CLASS ProjBoFlaecheSymbol =
+      ProjBoFlaecheSymbol_von: REFERENCE TO ProjBoFlaeche;
+      Pos: TEXT*30;
+      Ori: 0.0 .. 400.0;
+    END ProjBoFlaecheSymbol;
 
     CLASS BoFlaeche =
       Geometrie: MANDATORY TEXT*30;
@@ -77,6 +120,11 @@ MODEL Dm01BbTestModel (de)
       Entstehung -- {1} BBNachfuehrung;
       entstehende_BoFlaeche -- {0..*} BoFlaeche;
     END Entstehung_BoFlaeche;
+
+    ASSOCIATION Entstehung_ProjBoFlaeche =
+      Entstehung -- {1} BBNachfuehrung;
+      entstehende_ProjBoFlaeche -- {0..*} ProjBoFlaeche;
+    END Entstehung_ProjBoFlaeche;
 
     ASSOCIATION Entstehung_Einzelpunkt =
       Entstehung -- {0..1} BBNachfuehrung;

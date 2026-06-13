@@ -70,6 +70,7 @@ class RealBbSemanticRoundtripTest {
         assertThat(countBySuffix(objects, ".BBNachfuehrung")).isPositive();
         assertThat(countByTagContains(objects, "Bodenbedeckung.Bodenbedeckung")).isPositive();
         assertThat(countBySuffix(objects, ".Messpunkt")).isPositive();
+        assertThat(Files.readString(dmavOutput)).contains("Objektstatus>projektiert<");
     }
 
     private void run(Path mappingPath, Path reportDir) throws Exception {
@@ -80,7 +81,11 @@ class RealBbSemanticRoundtripTest {
         List<Diagnostic> errors = diagnostics.all().stream()
                 .filter(d -> d.severity() == Severity.ERROR)
                 .toList();
+        List<Diagnostic> warnings = diagnostics.all().stream()
+                .filter(d -> d.severity() == Severity.WARNING)
+                .toList();
         assertThat(errors).as("Diagnostics: %s", diagnostics.all()).isEmpty();
+        assertThat(warnings).as("Warnings: %s", diagnostics.all()).isEmpty();
     }
 
     private Path materializeDm01ToDmav(Path inputPath, Path outputPath) throws Exception {

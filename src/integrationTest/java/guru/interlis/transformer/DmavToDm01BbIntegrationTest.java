@@ -14,6 +14,7 @@ import ch.interlis.iox_j.StartTransferEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import guru.interlis.transformer.diag.DiagnosticCollector;
+import guru.interlis.transformer.diag.Severity;
 import guru.interlis.transformer.engine.TransformResult;
 import guru.interlis.transformer.engine.TransformationEngine;
 import guru.interlis.transformer.expr.ExpressionEngine;
@@ -87,7 +88,8 @@ class DmavToDm01BbIntegrationTest {
         assertThat(plan.diagnostics().hasErrors())
                 .as("Compiler errors: %s", plan.diagnostics().all())
                 .isFalse();
-        assertThat(plan.rules()).hasSize(3);
+        assertThat(plan.diagnostics().warnings()).isZero();
+        assertThat(plan.rules()).hasSize(5);
         assertThat(plan.oidPlan().defaultStrategy().name()).isEqualTo("INTEGER");
     }
 
@@ -179,6 +181,7 @@ class DmavToDm01BbIntegrationTest {
             assertThat(hasAmbiguousRefs)
                     .as("Engine diagnostics: %s", engineDiag.all())
                     .isFalse();
+            assertThat(engineDiag.all()).isEmpty();
             assertThat(result.errors()).isEqualTo(0);
 
             String content = Files.readString(outputPath);
@@ -189,7 +192,97 @@ class DmavToDm01BbIntegrationTest {
             assertThat(content).contains("ETAB");
             assertThat(content).contains("GebaeudenummerPos");
             assertThat(content).contains("ObjektnamePos");
+            assertThat(content).contains("17");
+            assertThat(content).contains("Testgebaeude");
+            assertThat(content).contains("2600010.000");
+            assertThat(content).contains("2600020.000");
+            assertThat(content).contains("2600030.000");
 
+        } finally {
+            Files.deleteIfExists(outputPath);
+        }
+    }
+
+    @Test
+    void filtersFiktiveAndRoutesProjectedBodenbedeckungToProjTables() throws Exception {
+        ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+        JobConfig config = mapper.readValue(Path.of(MAPPING_FILE).toFile(), JobConfig.class);
+
+        Map<String, TypeSystemFacade> sourceTs = Map.of("DmavBbTestModel", dmavTs);
+        Map<String, TypeSystemFacade> targetTs = Map.of("Dm01BbTestModel", dm01Ts);
+        TransformPlan plan = new MappingCompiler().compileTyped(config, sourceTs, targetTs);
+        assertThat(plan.diagnostics().all()).isEmpty();
+
+        Iom_jObject nf = new Iom_jObject("DmavBbTestModel.Bodenbedeckung.BBNachfuehrung", "uuid-nf-1");
+        nf.setattrvalue("NBIdent", "NF001");
+        nf.setattrvalue("Identifikator", "ID001");
+        nf.setattrvalue("Beschreibung", "Projected-and-fiktive");
+        nf.setattrvalue("GueltigerEintrag", "2025-01-15T00:00:00+00:00");
+
+        Iom_jObject real = new Iom_jObject("DmavBbTestModel.Bodenbedeckung.Bodenbedeckung", "uuid-bb-real");
+        real.setattrvalue("Entstehung", "uuid-nf-1");
+        real.setattrvalue("Geometrie", "2600000.000 1200000.000");
+        real.setattrvalue("Qualitaetsstandard", "AV93");
+        real.setattrvalue("Bodenbedeckungsart", "Gebaeude");
+        real.setattrvalue("Fiktiv", "false");
+        real.setattrvalue("Objektstatus", "real");
+        real.setattrvalue("EGID", "11");
+        Iom_jObject realName = new Iom_jObject("DmavBbTestModel.Bodenbedeckung.Objektname", "real-name");
+        realName.setattrvalue("Name", "RealName");
+        real.addattrobj("Objektname", "BAG").addattrobj("Objektname", realName);
+
+        Iom_jObject projected = new Iom_jObject("DmavBbTestModel.Bodenbedeckung.Bodenbedeckung", "uuid-bb-proj");
+        projected.setattrvalue("Entstehung", "uuid-nf-1");
+        projected.setattrvalue("Geometrie", "2600100.000 1200100.000");
+        projected.setattrvalue("Qualitaetsstandard", "AV93");
+        projected.setattrvalue("Bodenbedeckungsart", "Gebaeude");
+        projected.setattrvalue("Fiktiv", "false");
+        projected.setattrvalue("Objektstatus", "projektiert");
+        projected.setattrvalue("EGID", "22");
+        Iom_jObject projNumber = new Iom_jObject("DmavBbTestModel.Bodenbedeckung.Objektnummer", "proj-number");
+        projNumber.setattrvalue("Nummer", "99");
+        projected.addattrobj("Objektnummer", "BAG").addattrobj("Objektnummer", projNumber);
+
+        Iom_jObject fiktive = new Iom_jObject("DmavBbTestModel.Bodenbedeckung.Bodenbedeckung", "uuid-bb-fiktiv");
+        fiktive.setattrvalue("Entstehung", "uuid-nf-1");
+        fiktive.setattrvalue("Geometrie", "2600200.000 1200200.000");
+        fiktive.setattrvalue("Qualitaetsstandard", "AV93");
+        fiktive.setattrvalue("Bodenbedeckungsart", "Gebaeude");
+        fiktive.setattrvalue("Fiktiv", "true");
+        fiktive.setattrvalue("Objektstatus", "real");
+        fiktive.setattrvalue("EGID", "33");
+        Iom_jObject fiktiveName = new Iom_jObject("DmavBbTestModel.Bodenbedeckung.Objektname", "fiktive-name");
+        fiktiveName.setattrvalue("Name", "IgnoreMe");
+        fiktive.addattrobj("Objektname", "BAG").addattrobj("Objektname", fiktiveName);
+
+        Path outputPath = Files.createTempFile("dm01-bb-proj-", ".itf");
+        try {
+            InterlisIoFactory ioFactory = new InterlisIoFactory();
+            IoxWriter writer = ioFactory.createWriter(outputPath, dm01TransferDescription);
+
+            DiagnosticCollector engineDiag = new DiagnosticCollector();
+            TransformationEngine engine = new TransformationEngine(
+                    new ExpressionEngine(),
+                    new InMemoryStateStore(),
+                    engineDiag,
+                    new IoxGeometryAdapter(),
+                    new DefaultOidGenerationService(),
+                    new InMemoryReferenceIndex());
+            TransformResult result = engine.runTyped(plan,
+                    onceReaderFactory(nf, real, projected, fiktive), Map.of("dm01", writer));
+
+            assertThat(result.errors()).isEqualTo(0);
+            assertThat(engineDiag.all()).isEmpty();
+
+            String content = Files.readString(outputPath);
+            assertThat(content).contains("BoFlaeche");
+            assertThat(content).contains("ProjBoFlaeche");
+            assertThat(content).contains("ProjGebaeudenummer");
+            assertThat(content).contains("RealName");
+            assertThat(content).contains("99");
+            assertThat(content).doesNotContain("IgnoreMe");
+            assertThat(content).contains("Projected-and-fiktive 1 2025-01-15T00:00:00+00:00");
+            assertThat(content).contains("Projected-and-fiktive 0 2025-01-15T00:00:00+00:00");
         } finally {
             Files.deleteIfExists(outputPath);
         }
@@ -227,11 +320,17 @@ class DmavToDm01BbIntegrationTest {
 
             DiagnosticCollector engineDiag = new DiagnosticCollector();
             TransformationEngine engine = new TransformationEngine(
-                    new ExpressionEngine(), new InMemoryStateStore(), engineDiag);
+                    new ExpressionEngine(),
+                    new InMemoryStateStore(),
+                    engineDiag,
+                    new IoxGeometryAdapter(),
+                    new DefaultOidGenerationService(),
+                    new InMemoryReferenceIndex());
             TransformResult result = engine.runTyped(plan,
                     onceReaderFactory(nf, bb), Map.of("dm01", writer));
 
             assertThat(result.errors()).isEqualTo(0);
+            assertThat(engineDiag.all()).isEmpty();
             String content = Files.readString(outputPath);
             assertThat(content).contains("BoFlaeche");
         } finally {
@@ -270,13 +369,20 @@ class DmavToDm01BbIntegrationTest {
 
             DiagnosticCollector engineDiag = new DiagnosticCollector();
             TransformationEngine engine = new TransformationEngine(
-                    new ExpressionEngine(), new InMemoryStateStore(), engineDiag);
+                    new ExpressionEngine(),
+                    new InMemoryStateStore(),
+                    engineDiag,
+                    new IoxGeometryAdapter(),
+                    new DefaultOidGenerationService(),
+                    new InMemoryReferenceIndex());
             TransformResult result = engine.runTyped(plan,
                     onceReaderFactory(nf, mp), Map.of("dm01", writer));
 
             assertThat(result.errors()).isEqualTo(0);
+            assertThat(engineDiag.all()).isEmpty();
             String content = Files.readString(outputPath);
             assertThat(content).contains("Einzelpunkt");
+            assertThat(content).contains("MP001 2600100.000_1200100.000 5.0 0 0 1");
         } finally {
             Files.deleteIfExists(outputPath);
         }

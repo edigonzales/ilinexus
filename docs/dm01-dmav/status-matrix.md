@@ -11,7 +11,7 @@
 | ❌ | Offen / nicht implementiert |
 | ⚫ | Bewusst nicht unterstützt / fachlich unklar |
 
-Stand: 2026-06-12
+Stand: 2026-06-13
 
 ---
 
@@ -92,8 +92,8 @@ Stand: 2026-06-12
 | Geometrie | Geometrie | ✅ | ✅ |
 | Qualitaetsstandard | Qualitaet | ✅ | ✅ |
 | Bodenbedeckungsart | Art | ✅ | ✅ |
-| Fiktiv | — | ✅ (Default false) | ⚫ (kein Äquivalent) |
-| Objektstatus | — | ✅ (Default #weitere) | ⚫ (kein Äquivalent) |
+| Fiktiv | — | ✅ (Default false) | ✅ (Reverse filtert `Fiktiv=true` bewusst aus) |
+| Objektstatus | Gueltigkeit / `Proj*`-Klassen | ✅ (aus `BBNachfuehrung.Gueltigkeit` + `BoFlaeche`/`ProjBoFlaeche`) | ✅ (steuert `BoFlaeche` vs. `ProjBoFlaeche`) |
 | EGID | lookup(GWR_EGID) | ✅ | ✅ |
 | Objektnummer (BAG) | Gebaeudenummer | ✅ | ✅ |
 | Objektname (BAG) | Objektname | ✅ | ✅ |

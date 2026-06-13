@@ -72,6 +72,10 @@ class RealBbReverseSemanticRoundtripTest {
 
         assertThat(dm01Roundtrip).exists();
         assertThat(Files.size(dm01Roundtrip)).isGreaterThan(0);
+
+        List<IomObject> objects = readObjects(dm01Roundtrip, dm01Td);
+        assertThat(countBySuffix(objects, ".BoFlaeche")).isPositive();
+        assertThat(countBySuffix(objects, ".ProjBoFlaeche")).isPositive();
     }
 
     private void run(Path mappingPath, Path reportDir) throws Exception {
@@ -82,7 +86,11 @@ class RealBbReverseSemanticRoundtripTest {
         List<Diagnostic> errors = diagnostics.all().stream()
                 .filter(d -> d.severity() == Severity.ERROR)
                 .toList();
+        List<Diagnostic> warnings = diagnostics.all().stream()
+                .filter(d -> d.severity() == Severity.WARNING)
+                .toList();
         assertThat(errors).as("Diagnostics: %s", diagnostics.all()).isEmpty();
+        assertThat(warnings).as("Warnings: %s", diagnostics.all()).isEmpty();
     }
 
     private Path materializeDm01ToDmav(Path inputPath, Path outputPath) throws Exception {

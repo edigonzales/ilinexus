@@ -28,6 +28,9 @@ mapping:
     Zuverlaessigkeit_DM01_DMAV:
       ja: "true"
       nein: "false"
+    ExaktDefiniert_DM01_DMAV:
+      Ja: "true"
+      Nein: "false"
     BBArt_DM01_DMAV:
       Gebaeude: "Gebaeude"
       befestigt: "befestigt"
@@ -50,7 +53,7 @@ mapping:
       Bottom: "Bottom"
 
   rules:
-    - id: bb-nachfuehrung
+    - id: bb-nachfuehrung-gueltig
       target:
         output: dmav
         class: "DmavBbTestModel.Bodenbedeckung.BBNachfuehrung"
@@ -58,6 +61,7 @@ mapping:
         - alias: nf
           input: dm01
           class: "Dm01BbTestModel.Bodenbedeckung.BBNachfuehrung"
+          where: "if(notDefined(nf.Gueltigkeit), true, nf.Gueltigkeit != #projektiert)"
       identity:
         sourceKey: ["nf.NBIdent", "nf.Identifikator"]
       assign:
@@ -66,7 +70,24 @@ mapping:
         Beschreibung: "truncate(nf.Beschreibung, 60)"
         GueltigerEintrag: "toXmlDateTime(nf.GueltigerEintrag)"
 
-    - id: boflaeche
+    - id: bb-nachfuehrung-projektiert
+      target:
+        output: dmav
+        class: "DmavBbTestModel.Bodenbedeckung.BBNachfuehrung"
+      sources:
+        - alias: nf
+          input: dm01
+          class: "Dm01BbTestModel.Bodenbedeckung.BBNachfuehrung"
+          where: "nf.Gueltigkeit == #projektiert"
+      identity:
+        sourceKey: ["nf.NBIdent", "nf.Identifikator"]
+      assign:
+        NBIdent: "nf.NBIdent"
+        Identifikator: "nf.Identifikator"
+        Beschreibung: "truncate(nf.Beschreibung, 60)"
+        GueltigerEintrag: "toXmlDateTime(nf.GueltigerEintrag)"
+
+    - id: boflaeche-gueltig
       target:
         output: dmav
         class: "DmavBbTestModel.Bodenbedeckung.Bodenbedeckung"
@@ -79,7 +100,7 @@ mapping:
         Qualitaetsstandard: "bb.Qualitaet"
         Bodenbedeckungsart: "bb.Art"
         Fiktiv: "false"
-        Objektstatus: "#weitere"
+        Objektstatus: "#real"
         EGID: "1"
       bags:
         Objektnummer:
@@ -148,7 +169,92 @@ mapping:
           role: "Entstehung"
           required: true
           targetObject:
-            rule: bb-nachfuehrung
+            rule: bb-nachfuehrung-gueltig
+            sourceRef: "bb.Entstehung"
+
+    - id: boflaeche-projektiert
+      target:
+        output: dmav
+        class: "DmavBbTestModel.Bodenbedeckung.Bodenbedeckung"
+      sources:
+        - alias: bb
+          input: dm01
+          class: "Dm01BbTestModel.Bodenbedeckung.ProjBoFlaeche"
+      assign:
+        Geometrie: "bb.Geometrie"
+        Qualitaetsstandard: "bb.Qualitaet"
+        Bodenbedeckungsart: "bb.Art"
+        Fiktiv: "false"
+        Objektstatus: "#projektiert"
+        EGID: "1"
+      bags:
+        Objektnummer:
+          from:
+            input: dm01
+            class: "Dm01BbTestModel.Bodenbedeckung.ProjGebaeudenummer"
+            alias: gn
+          parentRef:
+            attribute: ProjGebaeudenummer_von
+            parentAlias: bb
+          assign:
+            Nummer: "gn.Nummer"
+          nestedBags:
+            Textposition:
+              from:
+                input: dm01
+                class: "Dm01BbTestModel.Bodenbedeckung.ProjGebaeudenummerPos"
+                alias: gnp
+              parentRef:
+                attribute: ProjGebaeudenummerPos_von
+                parentAlias: gn
+              assign:
+                Position: "gnp.Pos"
+                Orientierung: "coalesce(gnp.Ori, 100.0)"
+                HReferenzpunkt: "coalesce(gnp.HAli, 'Center')"
+                VReferenzpunkt: "coalesce(gnp.VAli, 'Half')"
+                Textgroesse: "coalesce(gnp.Groesse, 'mittel')"
+        Objektname:
+          from:
+            input: dm01
+            class: "Dm01BbTestModel.Bodenbedeckung.ProjObjektname"
+            alias: on
+          parentRef:
+            attribute: ProjObjektname_von
+            parentAlias: bb
+          assign:
+            Name: "on.Name"
+          nestedBags:
+            Textposition:
+              from:
+                input: dm01
+                class: "Dm01BbTestModel.Bodenbedeckung.ProjObjektnamePos"
+                alias: onp
+              parentRef:
+                attribute: ProjObjektnamePos_von
+                parentAlias: on
+              assign:
+                Position: "onp.Pos"
+                Orientierung: "coalesce(onp.Ori, 100.0)"
+                HReferenzpunkt: "coalesce(onp.HAli, 'Center')"
+                VReferenzpunkt: "coalesce(onp.VAli, 'Half')"
+                Textgroesse: "coalesce(onp.Groesse, 'mittel')"
+        Symbolposition:
+          from:
+            input: dm01
+            class: "Dm01BbTestModel.Bodenbedeckung.ProjBoFlaecheSymbol"
+            alias: sym
+          parentRef:
+            attribute: ProjBoFlaecheSymbol_von
+            parentAlias: bb
+          assign:
+            Position: "sym.Pos"
+            Orientierung: "coalesce(sym.Ori, 100.0)"
+      refs:
+        - association: "Entstehung_Bodenbedeckung"
+          role: "Entstehung"
+          required: true
+          targetObject:
+            rule: bb-nachfuehrung-projektiert
             sourceRef: "bb.Entstehung"
 
     - id: einzelpunkt
@@ -166,11 +272,11 @@ mapping:
         Geometrie: "ep.Geometrie"
         Lagegenauigkeit: "div(ep.LageGen, 100.0)"
         IstLagezuverlaessig: "enumMap(ep.LageZuv, 'Zuverlaessigkeit_DM01_DMAV')"
-        IstExaktDefiniert: "true"
+        IstExaktDefiniert: "enumMap(ep.ExaktDefiniert, 'ExaktDefiniert_DM01_DMAV')"
       refs:
         - association: "Entstehung_Messpunkt"
           role: "Entstehung"
-          required: true
+          required: false
           targetObject:
-            rule: bb-nachfuehrung
+            rule: bb-nachfuehrung-gueltig
             sourceRef: "ep.Entstehung"

@@ -87,7 +87,8 @@ class Dm01ToDmavBbIntegrationTest {
         assertThat(plan.diagnostics().hasErrors())
                 .as("Compiler errors: %s", plan.diagnostics().all())
                 .isFalse();
-        assertThat(plan.rules()).hasSize(3);
+        assertThat(plan.diagnostics().warnings()).isZero();
+        assertThat(plan.rules()).hasSize(5);
     }
 
     @Test
@@ -178,7 +179,7 @@ class Dm01ToDmavBbIntegrationTest {
             assertThat(content).contains("Bodenbedeckung");
             assertThat(content).contains("Gebaeude");
             assertThat(content).contains("false");
-            assertThat(content).contains("weitere");
+            assertThat(content).contains("real");
             assertThat(content).contains("1");
 
             // First-level bag Objektnummer created
@@ -204,6 +205,59 @@ class Dm01ToDmavBbIntegrationTest {
             assertThat(content).contains("90.0");
             assertThat(content).contains("Right");
 
+        } finally {
+            Files.deleteIfExists(outputPath);
+        }
+    }
+
+    @Test
+    void transformsProjectedBbToProjectedDmavStatus() throws Exception {
+        ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+        JobConfig config = mapper.readValue(Path.of(MAPPING_FILE).toFile(), JobConfig.class);
+
+        Map<String, TypeSystemFacade> sourceTs = Map.of("Dm01BbTestModel", dm01Ts);
+        Map<String, TypeSystemFacade> targetTs = Map.of("DmavBbTestModel", dmavTs);
+        TransformPlan plan = new MappingCompiler().compileTyped(config, sourceTs, targetTs);
+        assertThat(plan.diagnostics().all()).isEmpty();
+
+        Iom_jObject nf = new Iom_jObject("Dm01BbTestModel.Bodenbedeckung.BBNachfuehrung", "1");
+        nf.setattrvalue("NBIdent", "NF002");
+        nf.setattrvalue("Identifikator", "ID002");
+        nf.setattrvalue("Beschreibung", "Projected-BB");
+        nf.setattrvalue("Gueltigkeit", "projektiert");
+        nf.setattrvalue("GueltigerEintrag", "2025-01-15");
+
+        Iom_jObject bb = new Iom_jObject("Dm01BbTestModel.Bodenbedeckung.ProjBoFlaeche", "10");
+        bb.setattrvalue("Entstehung", "1");
+        bb.setattrvalue("Geometrie", "2600000.000 1200000.000");
+        bb.setattrvalue("Qualitaet", "AV93");
+        bb.setattrvalue("Art", "Gebaeude");
+
+        Iom_jObject gn = new Iom_jObject("Dm01BbTestModel.Bodenbedeckung.ProjGebaeudenummer", "100");
+        gn.addattrobj("ProjGebaeudenummer_von", Iom_jObject.REF).setobjectrefoid("10");
+        gn.setattrvalue("Nummer", "77");
+
+        Path outputPath = Files.createTempFile("dmav-bb-proj-", ".xtf");
+        try {
+            InterlisIoFactory ioFactory = new InterlisIoFactory();
+            IoxWriter writer = ioFactory.createWriter(outputPath, dmavTransferDescription);
+
+            DiagnosticCollector engineDiag = new DiagnosticCollector();
+            TransformationEngine engine = new TransformationEngine(
+                    new ExpressionEngine(), new InMemoryStateStore(), engineDiag);
+            TransformResult result = engine.runTyped(plan,
+                    onceReaderFactory(nf, bb, gn),
+                    Map.of("dmav", writer));
+
+            assertThat(result.targetsWritten()).isEqualTo(2);
+            assertThat(result.errors()).isEqualTo(0);
+            assertThat(engineDiag.all()).isEmpty();
+
+            String content = Files.readString(outputPath);
+            assertThat(content).contains("Bodenbedeckung");
+            assertThat(content).contains("projektiert");
+            assertThat(content).contains("false");
+            assertThat(content).contains("77");
         } finally {
             Files.deleteIfExists(outputPath);
         }

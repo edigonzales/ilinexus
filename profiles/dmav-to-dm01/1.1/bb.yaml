@@ -28,8 +28,34 @@ mapping:
 
   enums:
     Bodenbedeckungsart_DMAV_DM01:
+      Gebaeude: Gebaeude
+      befestigt.Strasse_Weg: "befestigt.Strasse_Weg"
+      befestigt.Trottoir: "befestigt.Trottoir"
+      befestigt.Verkehrsinsel: "befestigt.Verkehrsinsel"
+      befestigt.Bahn: "befestigt.Bahn"
+      befestigt.Flugplatz: "befestigt.Flugplatz"
+      befestigt.Wasserbecken: "befestigt.Wasserbecken"
+      befestigt.uebrige_befestigte: "befestigt.uebrige_befestigte"
+      humusiert.Acker_Wiese_Weide: "humusiert.Acker_Wiese_Weide"
+      humusiert.Intensivkultur.Reben: "humusiert.Intensivkultur.Reben"
+      humusiert.Intensivkultur.uebrige_Intensivkultur: "humusiert.Intensivkultur.uebrige_Intensivkultur"
+      humusiert.Gartenanlage: "humusiert.Gartenanlage"
+      humusiert.Hoch_Flachmoor: "humusiert.Hoch_Flachmoor"
+      humusiert.uebrige_humusierte: "humusiert.uebrige_humusierte"
       stehendes_Gewaesser: stehendes
       fliessendes_Gewaesser: fliessendes
+      Gewaesser.stehendes_Gewaesser: "Gewaesser.stehendes"
+      Gewaesser.fliessendes_Gewaesser: "Gewaesser.fliessendes"
+      Gewaesser.Schilfguertel: "Gewaesser.Schilfguertel"
+      bestockt.geschlossener_Wald: "bestockt.geschlossener_Wald"
+      bestockt.Wytweide.Wytweide_dicht: "bestockt.Wytweide.Wytweide_dicht"
+      bestockt.Wytweide.Wytweide_offen: "bestockt.Wytweide.Wytweide_offen"
+      bestockt.uebrige_bestockte: "bestockt.uebrige_bestockte"
+      vegetationslos.Fels: "vegetationslos.Fels"
+      vegetationslos.Gletscher_Firn: "vegetationslos.Gletscher_Firn"
+      vegetationslos.Geroell_Sand: "vegetationslos.Geroell_Sand"
+      vegetationslos.Abbau_Deponie: "vegetationslos.Abbau_Deponie"
+      vegetationslos.uebrige_vegetationslose: "vegetationslos.uebrige_vegetationslose"
     Zuverlaessigkeit_DMAV_DM01:
       true: ja
       false: nein
@@ -38,7 +64,7 @@ mapping:
       false: Nein
 
   rules:
-    - id: bb-nachfuehrung
+    - id: bb-nachfuehrung-gueltig
       target:
         output: dm01
         class: "DM01AVCH24LV95D.Bodenbedeckung.BBNachfuehrung"
@@ -53,9 +79,28 @@ mapping:
         Identifikator: "nf.Identifikator"
         Beschreibung: "truncate(nf.Beschreibung, 30)"
         Perimeter: "nf.Perimeter"
+        Gueltigkeit: "#gueltig"
         Datum1: "toInterlis1Date(nf.GueltigerEintrag)"
 
-    - id: boflaeche
+    - id: bb-nachfuehrung-projektiert
+      target:
+        output: dm01
+        class: "DM01AVCH24LV95D.Bodenbedeckung.BBNachfuehrung"
+      sources:
+        - alias: nf
+          input: dmav
+          class: "DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.BBNachfuehrung"
+      identity:
+        sourceKey: ["nf.NBIdent", "nf.Identifikator"]
+      assign:
+        NBIdent: "nf.NBIdent"
+        Identifikator: "nf.Identifikator"
+        Beschreibung: "truncate(nf.Beschreibung, 30)"
+        Perimeter: "nf.Perimeter"
+        Gueltigkeit: "#projektiert"
+        Datum1: "toInterlis1Date(nf.GueltigerEintrag)"
+
+    - id: boflaeche-gueltig
       target:
         output: dm01
         class: "DM01AVCH24LV95D.Bodenbedeckung.BoFlaeche"
@@ -63,6 +108,9 @@ mapping:
         - alias: b
           input: dmav
           class: "DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.Bodenbedeckung"
+          where: "b.Fiktiv == 'false' and b.Objektstatus != #projektiert"
+      identity:
+        sourceKey: ["b.Objektstatus", "b.Bodenbedeckungsart", "b.EGID"]
       assign:
         Geometrie: "b.Geometrie"
         Qualitaet: "b.Qualitaetsstandard"
@@ -107,6 +155,7 @@ mapping:
             class: "DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.Objektname"
           parentRef:
             role: Objektname_von
+            parentAlias: b
           assign:
             Name: "onItem.Name"
           nestedBags:
@@ -135,6 +184,7 @@ mapping:
             class: "DMAVTYM_Grafik_V1_0.Symbolposition"
           parentRef:
             role: BoFlaecheSymbol_von
+            parentAlias: b
           assign:
             Pos: "symItem.Position"
             Ori: "coalesce(symItem.Orientierung, 100.0)"
@@ -143,7 +193,103 @@ mapping:
           role: "Entstehung"
           required: true
           targetObject:
-            rule: bb-nachfuehrung
+            rule: bb-nachfuehrung-gueltig
+            sourceRef: "b.Entstehung"
+
+    - id: boflaeche-projektiert
+      target:
+        output: dm01
+        class: "DM01AVCH24LV95D.Bodenbedeckung.ProjBoFlaeche"
+      sources:
+        - alias: b
+          input: dmav
+          class: "DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.Bodenbedeckung"
+          where: "b.Fiktiv == 'false' and b.Objektstatus == #projektiert"
+      identity:
+        sourceKey: ["b.Objektstatus", "b.Bodenbedeckungsart", "b.EGID"]
+      assign:
+        Geometrie: "b.Geometrie"
+        Qualitaet: "b.Qualitaetsstandard"
+        Art: "enumMap(b.Bodenbedeckungsart, 'Bodenbedeckungsart_DMAV_DM01')"
+      bags:
+        Objektnummer:
+          mode: expand
+          structure: "DM01AVCH24LV95D.Bodenbedeckung.ProjGebaeudenummer"
+          from:
+            input: dmav
+            alias: gn
+            class: "DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.Objektnummer"
+          parentRef:
+            role: ProjGebaeudenummer_von
+            parentAlias: b
+          assign:
+            Nummer: "gn.Nummer"
+            GWR_EGID: "b.EGID"
+          nestedBags:
+            Textposition:
+              mode: expand
+              structure: "DM01AVCH24LV95D.Bodenbedeckung.ProjGebaeudenummerPos"
+              from:
+                input: dmav
+                alias: gnp
+                class: "DMAVTYM_Grafik_V1_0.Textposition"
+              parentRef:
+                role: ProjGebaeudenummerPos_von
+                parentAlias: gn
+              assign:
+                Pos: "gnp.Position"
+                Ori: "coalesce(gnp.Orientierung, 100.0)"
+                HAli: "coalesce(gnp.HReferenzpunkt, 'Center')"
+                VAli: "coalesce(gnp.VReferenzpunkt, 'Half')"
+                Groesse: "coalesce(gnp.Textgroesse, 'mittel')"
+        Objektname:
+          mode: expand
+          structure: "DM01AVCH24LV95D.Bodenbedeckung.ProjObjektname"
+          from:
+            input: dmav
+            alias: onItem
+            class: "DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.Objektname"
+          parentRef:
+            role: ProjObjektname_von
+            parentAlias: b
+          assign:
+            Name: "onItem.Name"
+          nestedBags:
+            Textposition:
+              mode: expand
+              structure: "DM01AVCH24LV95D.Bodenbedeckung.ProjObjektnamePos"
+              from:
+                input: dmav
+                alias: onp
+                class: "DMAVTYM_Grafik_V1_0.Textposition"
+              parentRef:
+                role: ProjObjektnamePos_von
+                parentAlias: onItem
+              assign:
+                Pos: "onp.Position"
+                Ori: "coalesce(onp.Orientierung, 100.0)"
+                HAli: "coalesce(onp.HReferenzpunkt, 'Center')"
+                VAli: "coalesce(onp.VReferenzpunkt, 'Half')"
+                Groesse: "coalesce(onp.Textgroesse, 'mittel')"
+        Symbolposition:
+          mode: expand
+          structure: "DM01AVCH24LV95D.Bodenbedeckung.ProjBoFlaecheSymbol"
+          from:
+            input: dmav
+            alias: symItem
+            class: "DMAVTYM_Grafik_V1_0.Symbolposition"
+          parentRef:
+            role: ProjBoFlaecheSymbol_von
+            parentAlias: b
+          assign:
+            Pos: "symItem.Position"
+            Ori: "coalesce(symItem.Orientierung, 100.0)"
+      refs:
+        - association: "ProjBoFlaecheEntstehung"
+          role: "Entstehung"
+          required: true
+          targetObject:
+            rule: bb-nachfuehrung-projektiert
             sourceRef: "b.Entstehung"
 
     - id: einzelpunkt
@@ -165,7 +311,7 @@ mapping:
       refs:
         - association: "EinzelpunktEntstehung"
           role: "Entstehung"
-          required: true
+          required: false
           targetObject:
-            rule: bb-nachfuehrung
+            rule: bb-nachfuehrung-gueltig
             sourceRef: "m.Entstehung"

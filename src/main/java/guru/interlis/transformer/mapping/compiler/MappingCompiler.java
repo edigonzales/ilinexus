@@ -1235,6 +1235,7 @@ public final class MappingCompiler {
                 JobConfig.RuleSpec nestedRule = new JobConfig.RuleSpec();
                 nestedRule.id = ruleId + "-nested-" + bagAttrName;
                 nestedRule.output = rule.getEffectiveTargetOutput();
+                nestedRule.identity = rule.identity;
                 nestedRule.bags = bagSpec.nestedBags;
                 Map<String, SourcePlan> nestedSourcesByAlias = new HashMap<>(sourcesByAlias);
                 nestedSourcesByAlias.put(bagSourcePlan.alias(), bagSourcePlan);
