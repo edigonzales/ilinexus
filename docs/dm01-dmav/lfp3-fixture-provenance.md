@@ -1,5 +1,7 @@
 # LFP3 Fixture Provenance
 
+Die kuratierten Minimal-Fixtures `dm01-minimal.itf` und `dmav-minimal.xtf` liegen ebenfalls unter `src/test/resources/fixtures/dm01-dmav/lfp3/`, gehören aber nicht zu dieser Extraktionskette. Dieses Dokument beschreibt nur die extractor-owned `real-extract`-Fixtures.
+
 ## DMAV LFP3 Fixture
 
 ### Source
@@ -24,7 +26,7 @@ ExtractionRequest request = new ExtractionRequest(
 ### Result
 
 The generated fixture is validated in a temporary directory by default.
-The checked-in fixture `src/test/resources/real-dm01-dmav/lfp3/dmav-input.xtf` is only refreshed with an explicit opt-in.
+The checked-in fixture `src/test/resources/fixtures/dm01-dmav/lfp3/dmav-real-extract.xtf` is only refreshed with an explicit opt-in.
 
 ### Validation
 
@@ -73,7 +75,7 @@ ExtractionRequest request = new ExtractionRequest(
 ### Result
 
 The generated fixture is validated in a temporary directory by default.
-The checked-in fixture `src/test/resources/real-dm01-dmav/lfp3/dm01-input.itf` is only refreshed with an explicit opt-in.
+The checked-in fixture `src/test/resources/fixtures/dm01-dmav/lfp3/dm01-real-extract.itf` is only refreshed with an explicit opt-in.
 
 ### Verified
 
@@ -110,7 +112,7 @@ DM01-AV-CH.itf  ──RealDatasetCatalog──▶ TransferDatasetDescriptor
 ConnectedSubgraphExtractor.extract()
     │
     ▼
-dm01-input.itf / dmav-input.xtf  ──ilivalidator──▶ ValidationResult (valid ✓)
+dm01-real-extract.itf / dmav-real-extract.xtf  ──ilivalidator──▶ ValidationResult (valid ✓)
 ```
 
 ## Test Coverage

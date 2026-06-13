@@ -1,6 +1,7 @@
 package guru.interlis.transformer;
 
 import guru.interlis.transformer.dmav.Dm01DmavFixtures;
+import guru.interlis.transformer.dmav.Dm01DmavPaths;
 import guru.interlis.transformer.model.ConnectedSubgraphExtractor;
 import guru.interlis.transformer.model.ExtractedTransfer;
 import guru.interlis.transformer.model.ExtractionRequest;
@@ -21,14 +22,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @Tag("real-data")
 class ExtractedDm01FixtureValidationTest {
 
-    private static final Path DATA_DIR = Path.of("src/test/data/DMAV_Version_1_1");
-    private static final String MODEL_DIR = "src/test/data/av/models";
-    private static final String DM01_MODEL = "DM01AVCH24LV95D";
+    private static final Path DATA_DIR = Dm01DmavPaths.FULL_DATASET_DIR;
+    private static final String MODEL_DIR = Dm01DmavPaths.LOCAL_MODEL_DIR;
+    private static final String DM01_MODEL = Dm01DmavPaths.DM01_MODEL;
 
     private static IliModelService modelService;
     private static ConnectedSubgraphExtractor extractor;
@@ -76,9 +77,7 @@ class ExtractedDm01FixtureValidationTest {
         Path fixtureDir = tempDir.resolve("fixtures");
         Files.createDirectories(fixtureDir);
 
-        ExtractionRequest request = Dm01DmavFixtures.lfp3ExtractionRequest(
-                fixtureDir,
-                List.of(MODEL_DIR));
+        ExtractionRequest request = Dm01DmavFixtures.lfp3Dm01ExtractionRequest(fixtureDir);
 
         ExtractedTransfer result = extractor.extract(source, request);
 
@@ -107,7 +106,7 @@ class ExtractedDm01FixtureValidationTest {
         assertThat(content).contains("TOPI FixpunkteKategorie3");
         assertThat(content).contains("TABL LFP3Nachfuehrung_Perimeter");
 
-        Path targetPath = Path.of("src/test/resources/real-dm01-dmav/lfp3/dm01-input.itf");
+        Path targetPath = Dm01DmavFixtures.LFP3.dm01RealExtractFixture();
         boolean updated = FixtureUpdateSupport.syncCheckedInFixture(result.transferFile(), targetPath);
 
         assertThat(targetPath).exists();

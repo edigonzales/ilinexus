@@ -14,9 +14,9 @@ import java.util.List;
 
 public final class ProduceDm01BbItfTask {
 
-    private static final Path DM01_TO_DMAV_PROFILE = Path.of("profiles/dm01-to-dmav/1.1/bb.yaml");
-    private static final Path DMAV_TO_DM01_PROFILE = Path.of("profiles/dmav-to-dm01/1.1/bb.yaml");
-    private static final Path DM01_INPUT = Path.of("src/test/data/DMAV_Version_1_1/DM01-AV-CH.itf");
+    private static final Path DM01_TO_DMAV_PROFILE = Dm01DmavFixtures.BB.dm01ToDmavProfile();
+    private static final Path DMAV_TO_DM01_PROFILE = Dm01DmavFixtures.BB.dmavToDm01Profile();
+    private static final Path DM01_INPUT = Dm01DmavPaths.FULL_DM01_DATASET;
     private static final Path DM01_OUTPUT = Path.of("build/out/dm01-bb.itf");
 
     private ProduceDm01BbItfTask() {}

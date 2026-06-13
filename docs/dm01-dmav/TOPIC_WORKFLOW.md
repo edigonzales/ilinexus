@@ -76,15 +76,18 @@ java -jar /Users/stefan/apps/ilivalidator-1.15.0/ilivalidator-1.15.0.jar \
   build/out/<topic>.xtf
 ```
 
-### Schritt 7: Minimale Fixtures erzeugen
+### Schritt 7: Topic-Fixtures anlegen
 
 ```
-src/test/resources/real-dm01-dmav/<topic>/dm01-input.itf   (minimal, validiert)
-src/test/resources/real-dm01-dmav/<topic>/dmav-input.xtf   (minimal, validiert)
+src/test/resources/fixtures/dm01-dmav/<topic>/dm01-minimal.itf
+src/test/resources/fixtures/dm01-dmav/<topic>/dmav-minimal.xtf
+src/test/resources/fixtures/dm01-dmav/<topic>/dm01-real-extract.itf
+src/test/resources/fixtures/dm01-dmav/<topic>/dmav-real-extract.xtf
 ```
 
-Jeder Fixture muss mit ilivalidator geprüft sein (Schritt 6). Minimal bedeutet: 1-2 Objekte pro Klasse, die alle Mapping-Regeln abdecken.
-Die zugehörigen Fixture-Extraktionstests validieren standardmässig nur im Temp-Verzeichnis; ein Update der eingecheckten Fixtures erfolgt bewusst mit `-PupdateFixtures=true`.
+`*-minimal` sind kuratierte, kleine Roundtrip-/Validator-Fixtures. `*-real-extract` werden aus den vollständigen realen Datensätzen extrahiert und über eigene Extractor-Tests evidenzgeführt.
+
+Jeder Fixture muss mit ilivalidator geprüft sein (Schritt 6). Minimal bedeutet: 1-2 Objekte pro Klasse, die alle Mapping-Regeln abdecken. Die zugehörigen Fixture-Extraktionstests validieren standardmässig nur im Temp-Verzeichnis; ein Update der eingecheckten `real-extract`-Dateien erfolgt bewusst mit `-PupdateFixtures=true`.
 
 ### Schritt 8: Matrix aktualisieren
 
@@ -108,6 +111,10 @@ In `docs/dm01-dmav/lossiness.md` dokumentieren, welche Informationen bei DMAV→
 - [ ] **ilivalidator** DMAV-Output validiert
 - [ ] **Minimal-Fixture** DM01-ITF valide
 - [ ] **Minimal-Fixture** DMAV-XTF valide
+- [ ] **Real-Extract-Fixture** DM01-ITF valide
+- [ ] **Real-Extract-Fixture** DMAV-XTF valide
+- [ ] **realDataTest** Minimal-Roundtrip-Gate grün
+- [ ] **realDataTest** Extractor-/Fixture-Validation grün
 - [ ] **realDataTest** Forward-/End-to-End-Gate grün
 - [ ] **realDataTest** Reverse-/Roundtrip-Gate grün
 - [ ] **Status-Matrix** aktualisiert

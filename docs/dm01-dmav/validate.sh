@@ -9,7 +9,7 @@
 #
 # Examples:
 #   ./validate.sh build/out/dmav-bb.xtf
-#   ./validate.sh src/test/resources/real-dm01-dmav/lfp3/dm01-input.itf
+#   ./validate.sh src/test/resources/fixtures/dm01-dmav/lfp3/dm01-real-extract.itf
 
 set -euo pipefail
 

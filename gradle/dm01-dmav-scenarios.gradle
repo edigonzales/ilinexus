@@ -1,0 +1,33 @@
+tasks.register('produceDm01BbItf', JavaExec) {
+    group = 'dm01-dmav'
+    description = 'Produce dm01-bb.itf from the full DM01 dataset via the productive BB profiles'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'guru.interlis.transformer.dmav.ProduceDm01BbItfTask'
+}
+
+tasks.register('validateTransfer', JavaExec) {
+    group = 'verification'
+    description = 'Validate ITF/XTF output with ilivalidator. Required: -Ptransfer, -Pmodel. Optional: -Pmodeldir, -Plog'
+    classpath = configurations.validator + sourceSets.main.runtimeClasspath
+    mainClass = 'guru.interlis.transformer.app.IlivalidatorRunner'
+
+    doFirst {
+        def transfer = project.findProperty('transfer')
+        def model = project.findProperty('model')
+        if (!transfer || !model) {
+            throw new GradleException(
+                    "Usage: ./gradlew validateTransfer -Ptransfer=<file> -Pmodel=<model> [-Pmodeldir=<dir>] [-Plog=<log>]"
+            )
+        }
+
+        def modeldir = project.findProperty('modeldir') ?: 'src/test/data/av/models/;https://models.interlis.ch'
+        def log = project.findProperty('log') ?: 'build/reports/ilivalidator/validation.log'
+
+        args = [
+            '--file', transfer.toString(),
+            '--modeldir', modeldir.toString(),
+            '--model', model.toString(),
+            '--log', log.toString()
+        ]
+    }
+}

@@ -62,6 +62,10 @@ mapping:
     ExaktDefiniert_DMAV_DM01:
       true: Ja
       false: Nein
+    Schriftgroesse_DMAV_DM01:
+      Klein: klein
+      Mittel: mittel
+      Gross: gross
 
   rules:
     - id: bb-nachfuehrung-gueltig
@@ -72,6 +76,7 @@ mapping:
         - alias: nf
           input: dmav
           class: "DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.BBNachfuehrung"
+          where: "lookup('DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.Bodenbedeckung', 'Entstehung', oid(nf), 'Objektstatus') != #projektiert"
       identity:
         sourceKey: ["nf.NBIdent", "nf.Identifikator"]
       assign:
@@ -90,6 +95,7 @@ mapping:
         - alias: nf
           input: dmav
           class: "DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.BBNachfuehrung"
+          where: "lookup('DMAV_Bodenbedeckung_V1_1.Bodenbedeckung.Bodenbedeckung', 'Entstehung', oid(nf), 'Objektstatus') == #projektiert"
       identity:
         sourceKey: ["nf.NBIdent", "nf.Identifikator"]
       assign:
@@ -145,7 +151,7 @@ mapping:
                 Ori: "coalesce(gnp.Orientierung, 100.0)"
                 HAli: "coalesce(gnp.HReferenzpunkt, 'Center')"
                 VAli: "coalesce(gnp.VReferenzpunkt, 'Half')"
-                Groesse: "coalesce(gnp.Textgroesse, 'mittel')"
+                Groesse: "enumMap(coalesce(gnp.Textgroesse, 'Mittel'), 'Schriftgroesse_DMAV_DM01')"
         Objektname:
           mode: expand
           structure: "DM01AVCH24LV95D.Bodenbedeckung.Objektname"
@@ -174,7 +180,7 @@ mapping:
                 Ori: "coalesce(onp.Orientierung, 100.0)"
                 HAli: "coalesce(onp.HReferenzpunkt, 'Center')"
                 VAli: "coalesce(onp.VReferenzpunkt, 'Half')"
-                Groesse: "coalesce(onp.Textgroesse, 'mittel')"
+                Groesse: "enumMap(coalesce(onp.Textgroesse, 'Mittel'), 'Schriftgroesse_DMAV_DM01')"
         Symbolposition:
           mode: expand
           structure: "DM01AVCH24LV95D.Bodenbedeckung.BoFlaecheSymbol"
@@ -241,7 +247,7 @@ mapping:
                 Ori: "coalesce(gnp.Orientierung, 100.0)"
                 HAli: "coalesce(gnp.HReferenzpunkt, 'Center')"
                 VAli: "coalesce(gnp.VReferenzpunkt, 'Half')"
-                Groesse: "coalesce(gnp.Textgroesse, 'mittel')"
+                Groesse: "enumMap(coalesce(gnp.Textgroesse, 'Mittel'), 'Schriftgroesse_DMAV_DM01')"
         Objektname:
           mode: expand
           structure: "DM01AVCH24LV95D.Bodenbedeckung.ProjObjektname"
@@ -270,7 +276,7 @@ mapping:
                 Ori: "coalesce(onp.Orientierung, 100.0)"
                 HAli: "coalesce(onp.HReferenzpunkt, 'Center')"
                 VAli: "coalesce(onp.VReferenzpunkt, 'Half')"
-                Groesse: "coalesce(onp.Textgroesse, 'mittel')"
+                Groesse: "enumMap(coalesce(onp.Textgroesse, 'Mittel'), 'Schriftgroesse_DMAV_DM01')"
         Symbolposition:
           mode: expand
           structure: "DM01AVCH24LV95D.Bodenbedeckung.ProjBoFlaecheSymbol"

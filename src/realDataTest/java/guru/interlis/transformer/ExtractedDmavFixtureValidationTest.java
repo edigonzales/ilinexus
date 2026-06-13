@@ -1,6 +1,7 @@
 package guru.interlis.transformer;
 
 import guru.interlis.transformer.dmav.Dm01DmavFixtures;
+import guru.interlis.transformer.dmav.Dm01DmavPaths;
 import guru.interlis.transformer.model.ConnectedSubgraphExtractor;
 import guru.interlis.transformer.model.ExtractedTransfer;
 import guru.interlis.transformer.model.ExtractionRequest;
@@ -20,16 +21,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @Tag("real-data")
 class ExtractedDmavFixtureValidationTest {
 
-    private static final Path DATA_DIR = Path.of("src/test/data/DMAV_Version_1_1");
-    private static final String MODEL_DIR = "src/test/data/av/models";
-    private static final String MODEL_DIRS = MODEL_DIR + ";https://models.interlis.ch";
-    private static final String DMAV_MODEL = "DMAV_FixpunkteAVKategorie3_V1_1";
-    private static final String UMBRELLA_MODEL = "DMAVTYM_Alles_V1_1";
+    private static final Path DATA_DIR = Dm01DmavPaths.FULL_DATASET_DIR;
+    private static final String MODEL_DIR = Dm01DmavPaths.LOCAL_MODEL_DIR;
+    private static final String MODEL_DIRS = Dm01DmavPaths.LOCAL_AND_REMOTE_MODEL_DIRS;
+    private static final String UMBRELLA_MODEL = Dm01DmavPaths.DMAV_UMBRELLA_MODEL;
 
     private static IliModelService modelService;
     private static ConnectedSubgraphExtractor extractor;
@@ -68,9 +68,7 @@ class ExtractedDmavFixtureValidationTest {
         Path fixtureDir = tempDir.resolve("fixtures");
         Files.createDirectories(fixtureDir);
 
-        ExtractionRequest request = Dm01DmavFixtures.lfp3ExtractionRequest(
-                fixtureDir,
-                List.of(MODEL_DIR, "https://models.interlis.ch"));
+        ExtractionRequest request = Dm01DmavFixtures.lfp3DmavExtractionRequest(fixtureDir);
 
         ExtractedTransfer result = extractor.extract(source, request);
 
@@ -95,7 +93,7 @@ class ExtractedDmavFixtureValidationTest {
                 .as("DMAV LFP3 fixture must be valid. Log: " + validation.logText())
                 .isTrue();
 
-        Path targetPath = Path.of("src/test/resources/real-dm01-dmav/lfp3/dmav-input.xtf");
+        Path targetPath = Dm01DmavFixtures.LFP3.dmavRealExtractFixture();
         boolean updated = FixtureUpdateSupport.syncCheckedInFixture(result.transferFile(), targetPath);
 
         assertThat(targetPath).exists();

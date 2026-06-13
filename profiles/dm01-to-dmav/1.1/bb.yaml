@@ -34,6 +34,10 @@ mapping:
     ExaktDefiniert_DM01_DMAV:
       Ja: true
       Nein: false
+    Schriftgroesse_DM01_DMAV:
+      klein: Klein
+      mittel: Mittel
+      gross: Gross
     Bodenbedeckungsart_DM01_DMAV:
       Gebaeude: "Gebaeude"
       befestigt.Strasse_Weg: "befestigt.Strasse_Weg"
@@ -139,7 +143,7 @@ mapping:
                 Orientierung: "coalesce(gnp.Ori, 100.0)"
                 HReferenzpunkt: "coalesce(gnp.HAli, 'Center')"
                 VReferenzpunkt: "coalesce(gnp.VAli, 'Half')"
-                Textgroesse: "coalesce(gnp.Groesse, 'mittel')"
+                Textgroesse: "enumMap(coalesce(gnp.Groesse, 'mittel'), 'Schriftgroesse_DM01_DMAV')"
         Objektname:
           from:
             input: dm01
@@ -164,7 +168,7 @@ mapping:
                 Orientierung: "coalesce(onp.Ori, 100.0)"
                 HReferenzpunkt: "coalesce(onp.HAli, 'Center')"
                 VReferenzpunkt: "coalesce(onp.VAli, 'Half')"
-                Textgroesse: "coalesce(onp.Groesse, 'mittel')"
+                Textgroesse: "enumMap(coalesce(onp.Groesse, 'mittel'), 'Schriftgroesse_DM01_DMAV')"
         Symbolposition:
           from:
             input: dm01
@@ -224,7 +228,7 @@ mapping:
                 Orientierung: "coalesce(gnp.Ori, 100.0)"
                 HReferenzpunkt: "coalesce(gnp.HAli, 'Center')"
                 VReferenzpunkt: "coalesce(gnp.VAli, 'Half')"
-                Textgroesse: "coalesce(gnp.Groesse, 'mittel')"
+                Textgroesse: "enumMap(coalesce(gnp.Groesse, 'mittel'), 'Schriftgroesse_DM01_DMAV')"
         Objektname:
           from:
             input: dm01
@@ -249,7 +253,7 @@ mapping:
                 Orientierung: "coalesce(onp.Ori, 100.0)"
                 HReferenzpunkt: "coalesce(onp.HAli, 'Center')"
                 VReferenzpunkt: "coalesce(onp.VAli, 'Half')"
-                Textgroesse: "coalesce(onp.Groesse, 'mittel')"
+                Textgroesse: "enumMap(coalesce(onp.Groesse, 'mittel'), 'Schriftgroesse_DM01_DMAV')"
         Symbolposition:
           from:
             input: dm01

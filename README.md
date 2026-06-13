@@ -6,7 +6,8 @@ Java/Gradle-Werkzeug zur modellbewussten Transformation von INTERLIS-Transferdat
 
 - `profiles/` enthält die autoritativen, versionierten DM01/DMAV-Profile auf Root-Ebene.
 - `src/test/data/` enthält Modelle, offizielle AV-Artefakte und vollständige Echtdatensätze.
-- `src/test/resources/` enthält kleine kuratierte Fixtures, Test-Mappings und Snapshots.
+- `src/test/resources/fixtures/dm01-dmav/` enthält kanonische `*-minimal`- und `*-real-extract`-Fixtures pro Topic.
+- `src/test/resources/` enthält kleine kuratierte Test-Artefakte, Test-Mappings und Snapshots.
 - `docs/` enthält die aktive Benutzer- und Projektdokumentation.
 - `docs/dev/`, `docs/SPEC.md`, `docs/SPEC_V2.md` und `docs/open-questions.md` sind historische Arbeitsdokumente.
 
@@ -37,6 +38,7 @@ DM01/DMAV-spezifische Hilfstasks:
 ./gradlew generateDm01DmavMappings
 ./gradlew topicGapReport
 ./gradlew produceDm01BbItf
+./gradlew validateTransfer -Ptransfer=build/out/dmav-lfp3.xtf -Pmodel=DMAV_FixpunkteAVKategorie3_V1_1
 ```
 
 ## Produktive Profile

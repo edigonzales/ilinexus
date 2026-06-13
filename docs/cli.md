@@ -154,7 +154,7 @@ Additional Gradle-only tasks:
 
 ```bash
 ./gradlew topicGapReport
-./gradlew validateGoldenTransfers
+./gradlew validateTransfer -Ptransfer=build/out/dmav-lfp3.xtf -Pmodel=DMAV_FixpunkteAVKategorie3_V1_1
 ```
 
 ## Exit codes

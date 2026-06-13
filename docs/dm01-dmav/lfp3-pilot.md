@@ -102,7 +102,9 @@ Siehe `lossiness.md` für dokumentierte Verluste.
 Beide Richtungen werden mit `ilivalidator` validiert. Die Validierung ist im Integrationstest integriert.
 
 ```bash
-./gradlew validateGoldenTransfers
+./gradlew validateTransfer \
+  -Ptransfer=build/out/dmav-lfp3.xtf \
+  -Pmodel=DMAV_FixpunkteAVKategorie3_V1_1
 ```
 
 ## Einschränkungen

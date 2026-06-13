@@ -6,8 +6,8 @@ Phase 27 (`Reale Datensatzinventarisierung und fachlich zusammenhängende Testau
 
 | Datensatz | Format | Ziel-Fixture |
 |-----------|--------|--------------|
-| `DM01-AV-CH.itf` | ITF (INTERLIS 1) | `src/test/resources/real-dm01-dmav/lfp3/dm01-input.itf` |
-| `DMAVTYM_Alles_V1_1.xtf` | XTF (INTERLIS 2.4) | `src/test/resources/real-dm01-dmav/lfp3/dmav-input.xtf` |
+| `DM01-AV-CH.itf` | ITF (INTERLIS 1) | `src/test/resources/fixtures/dm01-dmav/lfp3/dm01-real-extract.itf` |
+| `DMAVTYM_Alles_V1_1.xtf` | XTF (INTERLIS 2.4) | `src/test/resources/fixtures/dm01-dmav/lfp3/dmav-real-extract.xtf` |
 
 Der `ConnectedSubgraphExtractor` liest den Quell-Transfer, indexiert alle Objekte, baut einen Referenzgraphen, selektiert LFP3-Seed-Objekte, expandiert per BFS entlang der Referenzen und schreibt die extrahierten Objekte wieder als Transfer.
 
@@ -48,7 +48,7 @@ Damit wird die DM01-LFP3-Teilmenge wieder unter `DM01AVCH24LV95D.FixpunkteKatego
 
 ## Ergebnis
 
-- `dm01-input.itf` wird aus `DM01-AV-CH.itf` extrahiert.
+- `dm01-real-extract.itf` wird aus `DM01-AV-CH.itf` extrahiert.
 - Die Fixture enthält `TOPI FixpunkteKategorie3`.
 - Die Fixture enthält `TABL LFP3Nachfuehrung_Perimeter`.
 - Die Fixture wird mit `ilivalidator` gegen `DM01AVCH24LV95D` validiert.

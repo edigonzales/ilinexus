@@ -6,7 +6,7 @@
 
 - `mappings/` synthetische Test-Mappings und CLI-Fixtures
 - `transfers/` kleine kuratierte ITF/XTF-Testdateien
-- `real-dm01-dmav/` aus realen Datensätzen extrahierte, validierte Minimal-Fixtures
+- `fixtures/dm01-dmav/` Topic-Fixtures mit kuratierten `*-minimal`- und extractor-owned `*-real-extract`-Transfers
 - `dm01-dmav/` Snapshots für Report-Tests
 
 ## Abgrenzung

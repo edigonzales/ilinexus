@@ -8,6 +8,8 @@ import guru.interlis.transformer.app.RunOptions;
 import guru.interlis.transformer.diag.Diagnostic;
 import guru.interlis.transformer.diag.DiagnosticCollector;
 import guru.interlis.transformer.diag.Severity;
+import guru.interlis.transformer.dmav.Dm01DmavFixtures;
+import guru.interlis.transformer.dmav.Dm01DmavPaths;
 import guru.interlis.transformer.interlis.InterlisIoFactory;
 import guru.interlis.transformer.mapping.compiler.MappingCompiler;
 import guru.interlis.transformer.mapping.model.JobConfig;
@@ -32,11 +34,11 @@ import static org.assertj.core.api.Assertions.*;
 @Tag("real-data")
 class RealDmavToDm01Lfp3EndToEndTest {
 
-    private static final String MODEL_DIR = "src/test/data/av/models/";
-    private static final String DM01_MODEL = "DM01AVCH24LV95D";
-    private static final String DMAV_MODEL = "DMAV_FixpunkteAVKategorie3_V1_1";
-    private static final Path PROFILE = Path.of("profiles/dmav-to-dm01/1.1/lfp3.yaml");
-    private static final Path DMAV_INPUT = Path.of("src/test/resources/real-dm01-dmav/lfp3/dmav-input.xtf");
+    private static final String MODEL_DIR = Dm01DmavPaths.LOCAL_MODEL_DIR;
+    private static final String DM01_MODEL = Dm01DmavPaths.DM01_MODEL;
+    private static final String DMAV_MODEL = Dm01DmavPaths.DMAV_LFP3_MODEL;
+    private static final Path PROFILE = Dm01DmavFixtures.LFP3.dmavToDm01Profile();
+    private static final Path DMAV_INPUT = Dm01DmavFixtures.LFP3.dmavRealExtractFixture();
 
     private static IliModelService modelService;
     private static TransferDescription dm01Td;
@@ -48,7 +50,7 @@ class RealDmavToDm01Lfp3EndToEndTest {
     @BeforeAll
     static void compileModels() {
         modelService = new IliModelService();
-        List<String> modelDirs = List.of(MODEL_DIR, "https://models.interlis.ch");
+        List<String> modelDirs = Dm01DmavPaths.defaultModelDirs();
 
         IliModelCompileResult dm01Result = modelService.compileModel(DM01_MODEL, MODEL_DIR);
         if (dm01Result.hasErrors()) {
@@ -74,8 +76,8 @@ class RealDmavToDm01Lfp3EndToEndTest {
         MappingLoader loader = new MappingLoader();
         JobConfig config = loader.load(PROFILE);
 
-        List<String> modelDirs = new ArrayList<>(List.of(MODEL_DIR));
-        modelDirs.add("https://models.interlis.ch");
+        List<String> modelDirs = new ArrayList<>(Dm01DmavPaths.localModelDirs());
+        modelDirs.add(Dm01DmavPaths.REMOTE_MODEL_DIR);
 
         ModelRegistry registry = ModelRegistry.builder()
                 .config(config)
@@ -189,8 +191,8 @@ class RealDmavToDm01Lfp3EndToEndTest {
     }
 
     private DiagnosticCollector run(Path mappingPath, boolean validateOutput, Path reportDir) throws Exception {
-        List<String> modelDirs = new ArrayList<>(List.of(MODEL_DIR));
-        modelDirs.add("https://models.interlis.ch");
+        List<String> modelDirs = new ArrayList<>(Dm01DmavPaths.localModelDirs());
+        modelDirs.add(Dm01DmavPaths.REMOTE_MODEL_DIR);
         RunOptions options = new RunOptions(modelDirs, validateOutput, reportDir, false);
         return new JobRunner().run(mappingPath, options);
     }

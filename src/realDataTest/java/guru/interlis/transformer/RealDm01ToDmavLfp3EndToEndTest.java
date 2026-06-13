@@ -7,6 +7,7 @@ import guru.interlis.transformer.app.JobRunner;
 import guru.interlis.transformer.app.RunOptions;
 import guru.interlis.transformer.diag.Diagnostic;
 import guru.interlis.transformer.diag.DiagnosticCollector;
+import guru.interlis.transformer.dmav.Dm01DmavFixtures;
 import guru.interlis.transformer.dmav.Dm01DmavPaths;
 import guru.interlis.transformer.mapping.compiler.MappingCompiler;
 import guru.interlis.transformer.mapping.model.JobConfig;
@@ -31,11 +32,11 @@ import static org.assertj.core.api.Assertions.*;
 @Tag("real-data")
 class RealDm01ToDmavLfp3EndToEndTest {
 
-    private static final String MODEL_DIR = "src/test/data/av/models/";
-    private static final String DM01_MODEL = "DM01AVCH24LV95D";
-    private static final String DMAV_MODEL = "DMAV_FixpunkteAVKategorie3_V1_1";
-    private static final Path PROFILE = Path.of("profiles/dm01-to-dmav/1.1/lfp3.yaml");
-    private static final Path DM01_INPUT = Path.of("src/test/resources/real-dm01-dmav/lfp3/dm01-input.itf");
+    private static final String MODEL_DIR = Dm01DmavPaths.LOCAL_MODEL_DIR;
+    private static final String DM01_MODEL = Dm01DmavPaths.DM01_MODEL;
+    private static final String DMAV_MODEL = Dm01DmavPaths.DMAV_LFP3_MODEL;
+    private static final Path PROFILE = Dm01DmavFixtures.LFP3.dm01ToDmavProfile();
+    private static final Path DM01_INPUT = Dm01DmavFixtures.LFP3.dm01RealExtractFixture();
 
     private static IliModelService modelService;
     private static TransferDescription dm01Td;
